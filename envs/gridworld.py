@@ -6,11 +6,29 @@ import numpy as np
 class GridWorldEnv(gym.Env):
     """Image-based GridWorld environment for exploration experiments."""
 
-    def __init__(self, grid_size=10, max_steps=100):
+    def __init__(
+        self,
+        grid_size=10,
+        max_steps=100,
+        dynamics_stochasticity=0.0,
+        expert_stochasticity=0.0,
+    ):
         super().__init__()
+
+        if not 0.0 <= dynamics_stochasticity <= 1.0:
+            raise ValueError(
+                "dynamics_stochasticity must be between 0 and 1."
+            )
+
+        if not 0.0 <= expert_stochasticity <= 1.0:
+            raise ValueError(
+                "expert_stochasticity must be between 0 and 1."
+            )
 
         self.grid_size = grid_size
         self.max_steps = max_steps
+        self.dynamics_stochasticity = dynamics_stochasticity
+        self.expert_stochasticity = expert_stochasticity
 
         self.action_space = spaces.Discrete(5)
 
@@ -57,7 +75,8 @@ class GridWorldEnv(gym.Env):
         return observation, {}
 
     def step(self, action):
-        direction = self._action_to_direction[action]
+        executed_action = self._apply_dynamics_stochasticity(action)
+        direction = self._action_to_direction[executed_action]
 
         new_position = self._explorer_position + direction
 
@@ -68,7 +87,12 @@ class GridWorldEnv(gym.Env):
         )
 
         expert_action = self._get_expert_action()
-        expert_direction = self._action_to_direction[expert_action]
+        expert_executed_action = self._apply_dynamics_stochasticity(
+            expert_action
+        )
+        expert_direction = self._action_to_direction[
+            expert_executed_action
+        ]
 
         new_expert_position = self._expert_position + expert_direction
 
@@ -86,9 +110,42 @@ class GridWorldEnv(gym.Env):
         terminated = False
         truncated = self._step_count >= self.max_steps
 
-        return observation, reward, terminated, truncated, {}
+        info = {
+            "requested_action": action,
+            "executed_action": executed_action,
+            "expert_requested_action": expert_action,
+            "expert_executed_action": expert_executed_action,
+        }
+
+        return observation, reward, terminated, truncated, info
+
+    def _apply_dynamics_stochasticity(self, action):
+        if self.np_random.random() >= self.dynamics_stochasticity:
+            return action
+
+        alternative_actions = [
+            candidate_action
+            for candidate_action in range(self.action_space.n)
+            if candidate_action != action
+        ]
+
+        return int(self.np_random.choice(alternative_actions))
 
     def _get_expert_action(self):
+        deterministic_action = self._get_deterministic_expert_action()
+
+        if self.np_random.random() >= self.expert_stochasticity:
+            return deterministic_action
+
+        alternative_actions = [
+            candidate_action
+            for candidate_action in range(self.action_space.n)
+            if candidate_action != deterministic_action
+        ]
+
+        return int(self.np_random.choice(alternative_actions))
+
+    def _get_deterministic_expert_action(self):
         expert_row, expert_col = self._expert_position
         goal_row, goal_col = self._goal_position
 
