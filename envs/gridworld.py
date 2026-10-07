@@ -207,12 +207,42 @@ class GridWorldEnv(gym.Env):
             dtype=np.uint8,
         )
 
-        explorer_row, explorer_col = self._explorer_position
-        expert_row, expert_col = self._expert_position
-        goal_row, goal_col = self._goal_position
+        explorer_position = tuple(self._explorer_position)
+        expert_position = tuple(self._expert_position)
+        goal_position = tuple(self._goal_position)
 
-        observation[explorer_row, explorer_col] = [255, 255, 255]
-        observation[expert_row, expert_col] = [255, 0, 0]
-        observation[goal_row, goal_col] = [0, 255, 0]
+        positions = {
+            explorer_position,
+            expert_position,
+            goal_position,
+        }
+
+        for row, col in positions:
+            has_explorer = (row, col) == explorer_position
+            has_expert = (row, col) == expert_position
+            has_goal = (row, col) == goal_position
+
+            if has_explorer and has_expert and has_goal:
+                color = [128, 128, 128]
+
+            elif has_explorer and has_expert:
+                color = [255, 0, 255]
+
+            elif has_explorer and has_goal:
+                color = [0, 255, 255]
+
+            elif has_expert and has_goal:
+                color = [255, 255, 0]
+
+            elif has_explorer:
+                color = [255, 255, 255]
+
+            elif has_expert:
+                color = [255, 0, 0]
+
+            else:
+                color = [0, 255, 0]
+
+            observation[row, col] = color
 
         return observation

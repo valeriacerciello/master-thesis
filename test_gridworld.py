@@ -1,10 +1,10 @@
-import matplotlib.pyplot as plt
+import numpy as np
 
 from envs.gridworld import GridWorldEnv
 
 
 env = GridWorldEnv(
-    grid_size=10,
+    grid_size=5,
     max_steps=100,
     dynamics_stochasticity=0.0,
     expert_stochasticity=0.0,
@@ -12,25 +12,64 @@ env = GridWorldEnv(
 
 env.reset(seed=42)
 
-# Random exploration for 100 steps.
-for _ in range(100):
-    action = env.action_space.sample()
-    env.step(action)
 
-print("Total visits:", env._visit_counts.sum())
-print("Unique cells visited:", (env._visit_counts > 0).sum())
-print("State coverage:", env.get_state_coverage())
-print(
-    "State coverage percentage:",
-    env.get_state_coverage() * 100,
+def check_pixel(name, position, expected_color):
+    observation = env._get_observation()
+
+    row, col = position
+    actual_color = observation[row, col]
+
+    print(
+        f"{name}: "
+        f"expected={expected_color}, "
+        f"actual={actual_color}, "
+        f"correct={np.array_equal(actual_color, expected_color)}"
+    )
+
+
+# Explorer + Expert
+env._explorer_position = np.array([1, 1])
+env._expert_position = np.array([1, 1])
+env._goal_position = np.array([3, 3])
+
+check_pixel(
+    "Explorer + Expert",
+    (1, 1),
+    [255, 0, 255],
 )
 
-plt.imshow(env._visit_counts)
-plt.colorbar(label="Number of visits")
-plt.title("Explorer visitation heatmap")
-plt.xlabel("Column")
-plt.ylabel("Row")
-plt.xticks(range(env.grid_size))
-plt.yticks(range(env.grid_size))
 
-plt.show()
+# Explorer + Goal
+env._explorer_position = np.array([1, 1])
+env._expert_position = np.array([3, 3])
+env._goal_position = np.array([1, 1])
+
+check_pixel(
+    "Explorer + Goal",
+    (1, 1),
+    [0, 255, 255],
+)
+
+
+# Expert + Goal
+env._explorer_position = np.array([3, 3])
+env._expert_position = np.array([1, 1])
+env._goal_position = np.array([1, 1])
+
+check_pixel(
+    "Expert + Goal",
+    (1, 1),
+    [255, 255, 0],
+)
+
+
+# Explorer + Expert + Goal
+env._explorer_position = np.array([1, 1])
+env._expert_position = np.array([1, 1])
+env._goal_position = np.array([1, 1])
+
+check_pixel(
+    "Explorer + Expert + Goal",
+    (1, 1),
+    [128, 128, 128],
+)
