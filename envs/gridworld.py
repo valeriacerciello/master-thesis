@@ -51,6 +51,7 @@ class GridWorldEnv(gym.Env):
         self._expert_position = None
         self._goal_position = None
         self._step_count = 0
+        self._visit_counts = None
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -70,6 +71,13 @@ class GridWorldEnv(gym.Env):
             ]
         )
 
+        self._visit_counts = np.zeros(
+            (self.grid_size, self.grid_size),
+            dtype=int,
+        )
+
+        self._record_explorer_visit()
+
         observation = self._get_observation()
 
         return observation, {}
@@ -85,6 +93,8 @@ class GridWorldEnv(gym.Env):
             0,
             self.grid_size - 1,
         )
+
+        self._record_explorer_visit()
 
         expert_action = self._get_expert_action()
         expert_executed_action = self._apply_dynamics_stochasticity(
@@ -118,6 +128,16 @@ class GridWorldEnv(gym.Env):
         }
 
         return observation, reward, terminated, truncated, info
+
+    def get_state_coverage(self):
+        visited_states = np.count_nonzero(self._visit_counts)
+        total_states = self.grid_size * self.grid_size
+
+        return visited_states / total_states
+
+    def _record_explorer_visit(self):
+        row, col = self._explorer_position
+        self._visit_counts[row, col] += 1
 
     def _apply_dynamics_stochasticity(self, action):
         if self.np_random.random() >= self.dynamics_stochasticity:
