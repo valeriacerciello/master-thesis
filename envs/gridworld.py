@@ -30,6 +30,8 @@ class GridWorldEnv(gym.Env):
         }
 
         self._explorer_position = None
+        self._expert_position = None
+        self._goal_position = None
         self._step_count = 0
 
     def reset(self, seed=None, options=None):
@@ -37,11 +39,17 @@ class GridWorldEnv(gym.Env):
 
         self._step_count = 0
 
-        self._explorer_position = self.np_random.integers(
-            low=0,
-            high=self.grid_size,
-            size=2,
-            dtype=int,
+        self._explorer_position = self._sample_position()
+
+        self._expert_position = self._sample_position(
+            excluded_positions=[self._explorer_position]
+        )
+
+        self._goal_position = self._sample_position(
+            excluded_positions=[
+                self._explorer_position,
+                self._expert_position,
+            ]
         )
 
         observation = self._get_observation()
@@ -59,6 +67,17 @@ class GridWorldEnv(gym.Env):
             self.grid_size - 1,
         )
 
+        expert_action = self._get_expert_action()
+        expert_direction = self._action_to_direction[expert_action]
+
+        new_expert_position = self._expert_position + expert_direction
+
+        self._expert_position = np.clip(
+            new_expert_position,
+            0,
+            self.grid_size - 1,
+        )
+
         self._step_count += 1
 
         observation = self._get_observation()
@@ -69,13 +88,54 @@ class GridWorldEnv(gym.Env):
 
         return observation, reward, terminated, truncated, {}
 
+    def _get_expert_action(self):
+        expert_row, expert_col = self._expert_position
+        goal_row, goal_col = self._goal_position
+
+        if expert_row > goal_row:
+            return 0  # UP
+
+        if expert_row < goal_row:
+            return 1  # DOWN
+
+        if expert_col > goal_col:
+            return 2  # LEFT
+
+        if expert_col < goal_col:
+            return 3  # RIGHT
+
+        return 4  # STAY
+
+    def _sample_position(self, excluded_positions=None):
+        if excluded_positions is None:
+            excluded_positions = []
+
+        while True:
+            position = self.np_random.integers(
+                low=0,
+                high=self.grid_size,
+                size=2,
+                dtype=int,
+            )
+
+            if not any(
+                np.array_equal(position, excluded)
+                for excluded in excluded_positions
+            ):
+                return position
+
     def _get_observation(self):
         observation = np.zeros(
             (self.grid_size, self.grid_size, 3),
             dtype=np.uint8,
         )
 
-        row, col = self._explorer_position
-        observation[row, col] = [255, 255, 255]
+        explorer_row, explorer_col = self._explorer_position
+        expert_row, expert_col = self._expert_position
+        goal_row, goal_col = self._goal_position
+
+        observation[explorer_row, explorer_col] = [255, 255, 255]
+        observation[expert_row, expert_col] = [255, 0, 0]
+        observation[goal_row, goal_col] = [0, 255, 0]
 
         return observation

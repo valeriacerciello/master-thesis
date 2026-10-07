@@ -5,15 +5,20 @@ env = GridWorldEnv(grid_size=10, max_steps=100)
 
 observation, info = env.reset(seed=42)
 
-print("Observation shape:", observation.shape)
-print("Observation dtype:", observation.dtype)
-print("Initial explorer position:", env._explorer_position)
+print("Explorer start:", env._explorer_position)
+print("Expert start:", env._expert_position)
+print("Goal:", env._goal_position)
+print()
 
-action = 3  # RIGHT
+for step in range(8):
+    expert_action = env._get_expert_action()
 
-observation, reward, terminated, truncated, info = env.step(action)
+    # Keep the explorer stationary so that we can isolate
+    # and inspect the expert's behaviour.
+    observation, reward, terminated, truncated, info = env.step(4)
 
-print("Explorer position after RIGHT:", env._explorer_position)
-print("Reward:", reward)
-print("Terminated:", terminated)
-print("Truncated:", truncated)
+    print(
+        f"Step {step + 1}: "
+        f"expert action = {expert_action}, "
+        f"expert position = {env._expert_position}"
+    )
