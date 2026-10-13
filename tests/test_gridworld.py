@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from envs.gridworld import GridWorldEnv
 
@@ -23,6 +24,55 @@ def test_reset_creates_valid_distinct_positions():
         env._expert_position,
         env._goal_position,
     )
+
+
+def test_goal_is_fixed_at_top_right_corner():
+    env = GridWorldEnv(grid_size=10)
+
+    expected_goal = np.array([0, 9])
+
+    for seed in [1, 42, 100]:
+        env.reset(seed=seed)
+
+        assert np.array_equal(
+            env._goal_position,
+            expected_goal,
+        )
+
+
+def test_goal_position_adapts_to_grid_size():
+    for grid_size in [2, 5, 10, 15]:
+        env = GridWorldEnv(grid_size=grid_size)
+        env.reset(seed=42)
+
+        expected_goal = np.array([0, grid_size - 1])
+
+        assert np.array_equal(
+            env._goal_position,
+            expected_goal,
+        )
+
+
+def test_agents_never_start_on_fixed_goal():
+    env = GridWorldEnv(grid_size=10)
+
+    for seed in range(20):
+        env.reset(seed=seed)
+
+        assert not np.array_equal(
+            env._explorer_position,
+            env._goal_position,
+        )
+
+        assert not np.array_equal(
+            env._expert_position,
+            env._goal_position,
+        )
+
+
+def test_grid_size_must_be_at_least_two():
+    with pytest.raises(ValueError):
+        GridWorldEnv(grid_size=1)
 
 
 def test_deterministic_expert_reaches_goal():

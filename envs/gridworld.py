@@ -15,6 +15,9 @@ class GridWorldEnv(gym.Env):
     ):
         super().__init__()
 
+        if grid_size < 2:
+            raise ValueError("grid_size must be at least 2.")
+
         if not 0.0 <= dynamics_stochasticity <= 1.0:
             raise ValueError(
                 "dynamics_stochasticity must be between 0 and 1."
@@ -29,6 +32,12 @@ class GridWorldEnv(gym.Env):
         self.max_steps = max_steps
         self.dynamics_stochasticity = dynamics_stochasticity
         self.expert_stochasticity = expert_stochasticity
+
+        # Fixed goal in the top-right corner.
+        self._goal_position = np.array(
+            [0, self.grid_size - 1],
+            dtype=int,
+        )
 
         self.action_space = spaces.Discrete(5)
 
@@ -49,7 +58,6 @@ class GridWorldEnv(gym.Env):
 
         self._explorer_position = None
         self._expert_position = None
-        self._goal_position = None
         self._step_count = 0
         self._visit_counts = None
 
@@ -58,16 +66,16 @@ class GridWorldEnv(gym.Env):
 
         self._step_count = 0
 
-        self._explorer_position = self._sample_position()
-
-        self._expert_position = self._sample_position(
-            excluded_positions=[self._explorer_position]
+        # The goal stays fixed across episodes.
+        # Both agents start at random positions away from the goal.
+        self._explorer_position = self._sample_position(
+            excluded_positions=[self._goal_position]
         )
 
-        self._goal_position = self._sample_position(
+        self._expert_position = self._sample_position(
             excluded_positions=[
+                self._goal_position,
                 self._explorer_position,
-                self._expert_position,
             ]
         )
 
