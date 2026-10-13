@@ -333,6 +333,18 @@ the explorer.
 Whether these interactions provide more useful information for
 imitation learning remains an experimental question.
 
+## Coverage Metrics
+
+The implementation distinguishes between two types of coverage:
+
+1. Explorer-position coverage.
+2. Joint-state coverage.
+
+Both metrics are available at two levels:
+
+- **Episode-level coverage**, recorded by the GridWorld environment.
+- **Cumulative coverage**, recorded by a separate evaluation component.
+
 ### Explorer-position coverage
 
 The environment records how often the explorer visits each grid cell.
@@ -353,7 +365,7 @@ This metric measures how broadly the explorer moves through the grid.
 
 It does not account for the expert's position.
 
-The metric is available through:
+The episode-level metric is available through:
 
 ```python
 env.get_state_coverage()
@@ -385,9 +397,6 @@ and:
 are different joint states, even though the explorer occupies the same
 cell in both cases.
 
-This is important because the expert's position changes the situation
-encountered by the exploring agent.
-
 #### Number of possible joint states
 
 For a grid containing N cells, each agent can occupy one of those cells.
@@ -411,13 +420,17 @@ For the default 10 × 10 grid:
 
 `total_joint_states = 100 × 99 = 9900`
 
+This denominator counts all configurations with distinct agent positions.
+It does not imply that every configuration will be visited by the current
+expert policy during a finite experiment.
+
 #### Joint-state coverage metric
 
 Joint-state coverage is defined as:
 
 `C_joint = unique_joint_states_visited / (N × (N - 1))`
 
-The metric is available through:
+The episode-level metric is available through:
 
 ```python
 env.get_joint_state_coverage()
@@ -441,57 +454,234 @@ For example:
 }
 ```
 
-This indicates that the first joint state was visited four times and
-the second joint state twice.
+Both states contribute once to the coverage numerator, regardless of
+how often they are visited.
 
-Both states contribute once to the coverage numerator.
+### Episode-level coverage tracking
 
-#### When visits are recorded
+The GridWorld records:
 
-The environment records:
+1. The initial state when `reset()` is called.
+2. The resulting state after every `step()`.
 
-1. The initial joint state when `reset()` is called.
-2. The resulting joint state after every `step()`.
+If a collision prevents both agents from moving, the current state
+is recorded again.
 
-If a collision prevents both agents from moving, the current joint
-state is recorded again.
+Repeated visits increase visitation counts but do not increase coverage.
 
-Repeated visits increase the visitation count but do not increase
-coverage.
+Both environment-level coverage trackers are reset at the beginning
+of every episode.
 
-#### Episode-level tracking
+Therefore, the environment's coverage methods measure coverage within
+a single episode.
 
-Both coverage trackers are reset at the beginning of every episode.
+## Cumulative Coverage Evaluation
 
-Therefore, the current methods measure coverage within a single episode.
+Cumulative coverage is implemented separately from the GridWorld in:
 
-For the main experiments, cumulative coverage across multiple episodes
-will also be needed.
+`evaluation/coverage.py`
 
-This can be implemented in the experimental evaluation pipeline by
-aggregating visited states across episodes.
+The `CoverageTracker` class tracks visited explorer positions and joint
+states across multiple episodes.
 
-### Interpreting coverage for MAIL
+This separation is intentional.
 
-Explorer-position coverage and joint-state coverage provide complementary
-information.
+The GridWorld is responsible for environment dynamics, while the
+evaluation component is responsible for measuring exploration progress.
 
-For example, two exploration methods may visit the same number of
-explorer positions but different numbers of joint states.
+The same evaluation component can therefore be reused for different
+exploration algorithms.
 
-This would indicate that the methods encounter different levels of
-diversity in the configurations involving both agents.
+### Why cumulative coverage is needed
 
-However, higher joint-state coverage does not necessarily imply that
-the collected data is more informative for imitation learning.
+Episode-level coverage measures the states visited during one episode.
 
-The final evaluation should investigate whether exploration improves
-the recovery of expert behaviour.
+However, exploration algorithms are generally trained and evaluated
+over many episodes.
 
-This will require additional metrics beyond coverage, potentially
-including expert-policy prediction accuracy, imitation performance,
-and game-theoretic evaluation when the appropriate environment and
-expert policies are available.
+We therefore want to measure how many distinct states an algorithm
+discovers throughout the exploration process.
+
+For example:
+
+| Episode | Joint states visited |
+|---|---|
+| 1 | A, B, C |
+| 2 | B, C, D |
+| 3 | C, D, E |
+
+Each episode visits three joint states.
+
+However, the cumulative number of distinct joint states is five:
+
+`{A, B, C, D, E}`
+
+Cumulative coverage is calculated using the union of visited states,
+not the sum or average of episode-level coverage.
+
+### CoverageTracker
+
+Create a tracker using:
+
+```python
+from evaluation.coverage import CoverageTracker
+
+tracker = CoverageTracker(grid_size=10)
+```
+
+The tracker maintains:
+
+- `explorer_visit_counts`: cumulative explorer-position visitation counts.
+- `joint_visit_counts`: cumulative joint-state visitation counts.
+- `total_steps`: number of recorded environment interactions.
+- `coverage_history`: coverage measurements after each recorded interaction.
+
+The tracker is independent of the exploration algorithm.
+
+### Recording initial states
+
+At the beginning of each episode, reset the environment and record
+the initial state:
+
+```python
+observation, info = env.reset()
+
+tracker.record_state(
+    env._explorer_position,
+    env._expert_position,
+)
+```
+
+The `record_state()` method updates visitation counts without increasing
+the environment interaction counter.
+
+This is intentional because resetting the environment is not counted
+as an environment interaction.
+
+The tracker is not reset between episodes.
+
+### Recording environment interactions
+
+After executing an environment step:
+
+```python
+observation, reward, terminated, truncated, info = env.step(action)
+
+tracker.record_step(
+    env._explorer_position,
+    env._expert_position,
+)
+```
+
+The `record_step()` method:
+
+1. Records the resulting explorer position.
+2. Records the resulting joint state.
+3. Increments the environment interaction counter.
+4. Stores the updated coverage measurements.
+
+This produces a coverage history indexed by the number of environment
+interactions.
+
+### Accessing cumulative coverage
+
+Cumulative explorer-position coverage:
+
+```python
+tracker.get_explorer_coverage()
+```
+
+Cumulative joint-state coverage:
+
+```python
+tracker.get_joint_coverage()
+```
+
+Both metrics return values between 0 and 1.
+
+For example, a value of `0.25` corresponds to 25% coverage.
+
+### Coverage history
+
+After each recorded environment interaction, the tracker stores an entry
+containing:
+
+- `step`
+- `explorer_coverage`
+- `joint_coverage`
+
+For example:
+
+```python
+[
+    {
+        "step": 1,
+        "explorer_coverage": 0.02,
+        "joint_coverage": 0.0002,
+    },
+    {
+        "step": 2,
+        "explorer_coverage": 0.03,
+        "joint_coverage": 0.0003,
+    },
+]
+```
+
+These values are illustrative.
+
+The actual coverage depends on the grid size and the visited states.
+
+This history will allow us to plot coverage against environment
+interactions.
+
+### Comparing exploration efficiency
+
+Tracking coverage over environment interactions will allow us to compare
+not only how much of the state space an algorithm explores, but also
+how quickly it discovers new states.
+
+For example, ProtoRL and Disagreement may eventually reach similar
+coverage while requiring different numbers of interactions.
+
+Coverage curves can help identify these differences.
+
+To make the comparisons meaningful, experiments should use:
+
+- the same environment configuration,
+- the same interaction budget,
+- comparable random seeds,
+- the same coverage definitions,
+- the same evaluation procedure.
+
+The evaluation should eventually be repeated across multiple seeds
+to account for variability.
+
+### Limitations of cumulative coverage
+
+Cumulative coverage measures the diversity of visited states.
+
+It does not directly measure whether those states are informative for
+imitation learning.
+
+This is especially important in the current GridWorld because the
+heuristic expert's requested action depends primarily on its own
+position rather than the complete joint state.
+
+Therefore, visiting many different joint states may not provide
+proportionally more information about the expert policy.
+
+The main thesis experiments will need additional evaluation metrics
+that assess whether the collected exploration data improves
+expert-policy recovery.
+
+Potential future measurements include:
+
+- expert-policy prediction accuracy,
+- imitation performance,
+- coverage of states relevant to expert behaviour,
+- game-theoretic evaluation when suitable expert policies are available.
+
+These metrics have not yet been implemented.
 
 ## Exploration Methods
 
@@ -593,6 +783,8 @@ will allow this to be investigated.
 
 ## Current Status
 
+### GridWorld environment
+
 The initial GridWorld infrastructure supports:
 
 - image observations,
@@ -608,12 +800,10 @@ The initial GridWorld infrastructure supports:
 - independently configurable environment stochasticity,
 - independently configurable expert stochasticity,
 - reproducible random seeds,
-- explorer-position visitation counts,
-- explorer-position coverage measurement,
-- joint-state visitation counts,
-- joint-state coverage measurement,
-- episode-level coverage tracking,
-- automated tests for the core environment behaviour.
+- episode-level explorer-position visitation counts,
+- episode-level explorer-position coverage,
+- episode-level joint-state visitation counts,
+- episode-level joint-state coverage.
 
 The environment currently provides zero reward to the exploring agent.
 
@@ -625,6 +815,53 @@ equilibrium recovery.
 
 The expert is currently a goal-following heuristic rather than a
 game-theoretically derived expert policy.
+
+### Evaluation infrastructure
+
+The evaluation component currently supports:
+
+- cumulative explorer-position visitation counts,
+- cumulative joint-state visitation counts,
+- cumulative coverage across episodes,
+- environment interaction counting,
+- coverage history indexed by interactions,
+- resetting cumulative statistics,
+- validation of recorded positions.
+
+The coverage tracker has been tested independently and through
+integration tests with the GridWorld.
+
+The integration test runs two episodes using random explorer actions,
+records the initial state of each episode, and tracks all resulting states.
+
+It verifies that:
+
+- the environment resets between episodes,
+- the cumulative tracker preserves previously visited states,
+- interaction counts remain correct,
+- coverage does not decrease,
+- coverage values remain within valid bounds.
+
+This provides the initial evaluation infrastructure needed to compare
+exploration methods using consistent coverage metrics.
+
+### Project structure
+
+The current relevant files are:
+
+```text
+master-thesis/
+├── envs/
+│   └── gridworld.py
+├── evaluation/
+│   └── coverage.py
+├── tests/
+│   ├── test_gridworld.py
+│   ├── test_coverage.py
+│   └── test_coverage_integration.py
+├── README.md
+└── requirements.txt
+```
 
 ## Design Decisions to Validate
 
@@ -644,26 +881,33 @@ These should be validated before the main experiments:
 - treatment of collisions,
 - whether the expert should react strategically to the explorer,
 - definition of expert-relevant coverage,
-- cumulative coverage across episodes,
+- selection of experimental interaction budgets,
+- selection of evaluation seeds,
 - collection of expert demonstrations,
 - integration with the deep MAIL pipeline,
 - evaluation of recovered policies.
 
-The following design decisions have been implemented and tested:
+The following components have been implemented and tested:
 
 - fixed goal position,
 - simultaneous movement,
 - same-cell collision handling,
 - position-swap collision handling,
 - explorer-position coverage,
-- joint-state coverage.
+- joint-state coverage,
+- cumulative coverage tracking,
+- coverage history over environment interactions.
 
 These decisions may be revisited based on the requirements of the
 exploration experiments.
 
 ## Testing
 
-The environment has automated tests covering:
+The project currently includes three test files:
+
+### `tests/test_gridworld.py`
+
+Tests the GridWorld environment, including:
 
 - valid and distinct initial positions,
 - fixed goal location,
@@ -687,24 +931,56 @@ The environment has automated tests covering:
 - distinct joint states with the same explorer position,
 - joint-state visitation counting after collisions.
 
-Run the tests using:
+### `tests/test_coverage.py`
+
+Tests the cumulative coverage tracker, including:
+
+- recording initial states without counting interactions,
+- repeated visits,
+- cumulative coverage across episodes,
+- coverage history,
+- invalid positions,
+- resetting cumulative statistics,
+- invalid grid sizes.
+
+### `tests/test_coverage_integration.py`
+
+Tests the connection between the GridWorld environment and the
+cumulative coverage tracker.
+
+The integration test verifies that cumulative coverage is correctly
+recorded across multiple environment episodes.
+
+### Running the tests
+
+Run the complete test suite using:
 
 ```bash
 python -m pytest -q
 ```
 
-At the current checkpoint, all 24 tests pass.
+At the current checkpoint, all **32 tests pass**.
 
 ## Next Steps
 
-Before implementing the exploration algorithms:
+The next development steps are:
 
-1. Define how to aggregate coverage across multiple episodes.
-2. Determine which additional exploration metrics are needed, particularly
-   metrics related to expert-policy recovery.
-3. Establish how exploration data will be used to query the expert and
-   construct imitation-learning datasets.
-4. Finalize the interfaces required by ProtoRL and Disagreement.
-5. Implement a simple exploration baseline for comparison.
-6. Implement and compare ProtoRL and Disagreement.
-7. Extend the environment and expert policies for downstream MAIL evaluation.
+1. Implement a reproducible experiment runner that connects the
+   GridWorld, exploration policy, and coverage tracker.
+2. Establish a random exploration baseline.
+3. Generate explorer-position visitation heatmaps and cumulative
+   coverage curves.
+4. Define an initial set of environment configurations covering the
+   four combinations of deterministic/stochastic expert policies and
+   environment dynamics.
+5. Decide how to collect expert demonstrations from visited states.
+6. Identify evaluation metrics that measure whether exploration
+   improves expert-policy recovery.
+7. Finalize the interfaces required by ProtoRL and Disagreement.
+8. Implement and compare ProtoRL and Disagreement.
+9. Extend the environment and expert policies for downstream
+   MAIL evaluation.
+
+The central research objective remains to understand which exploration
+strategies collect the most useful information for recovering expert
+behaviour, rather than simply maximizing state coverage.
