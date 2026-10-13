@@ -84,8 +84,15 @@ def test_deterministic_expert_reaches_goal():
 
     env.reset(seed=42)
 
-    for _ in range(20):
-        env.step(4)
+    # Place the explorer away from the expert's path.
+    env._explorer_position = np.array([9, 0])
+    env._expert_position = np.array([5, 5])
+
+    # The expert needs 5 UP moves and 4 RIGHT moves.
+    for _ in range(9):
+        _, _, _, _, info = env.step(4)
+
+        assert not info["collision"]
 
     assert np.array_equal(
         env._expert_position,
@@ -290,3 +297,104 @@ def test_all_entities_overlap_color():
         observation[1, 1],
         [128, 128, 128],
     )
+
+
+def test_same_cell_collision_blocks_both_agents():
+    env = GridWorldEnv(
+        grid_size=5,
+        dynamics_stochasticity=0.0,
+        expert_stochasticity=0.0,
+    )
+    env.reset(seed=42)
+
+    # Explorer moves right into the expert's cell.
+    # Expert is at the goal and requests STAY.
+    env._explorer_position = np.array([0, 3])
+    env._expert_position = np.array([0, 4])
+
+    _, _, _, _, info = env.step(3)
+
+    assert np.array_equal(
+        env._explorer_position,
+        [0, 3],
+    )
+    assert np.array_equal(
+        env._expert_position,
+        [0, 4],
+    )
+    assert info["collision"]
+    assert info["same_cell_collision"]
+    assert not info["position_swap_collision"]
+
+
+def test_position_swap_collision_blocks_both_agents():
+    env = GridWorldEnv(
+        grid_size=5,
+        dynamics_stochasticity=0.0,
+        expert_stochasticity=0.0,
+    )
+    env.reset(seed=42)
+
+    # Explorer moves down while expert moves up.
+    env._explorer_position = np.array([1, 2])
+    env._expert_position = np.array([2, 2])
+
+    _, _, _, _, info = env.step(1)
+
+    assert np.array_equal(
+        env._explorer_position,
+        [1, 2],
+    )
+    assert np.array_equal(
+        env._expert_position,
+        [2, 2],
+    )
+    assert info["collision"]
+    assert info["position_swap_collision"]
+    assert not info["same_cell_collision"]
+
+
+def test_non_colliding_actions_move_both_agents():
+    env = GridWorldEnv(
+        grid_size=5,
+        dynamics_stochasticity=0.0,
+        expert_stochasticity=0.0,
+    )
+    env.reset(seed=42)
+
+    env._explorer_position = np.array([3, 0])
+    env._expert_position = np.array([3, 3])
+
+    # Explorer moves right; expert moves up.
+    _, _, _, _, info = env.step(3)
+
+    assert np.array_equal(
+        env._explorer_position,
+        [3, 1],
+    )
+    assert np.array_equal(
+        env._expert_position,
+        [2, 3],
+    )
+    assert not info["collision"]
+    assert not info["same_cell_collision"]
+    assert not info["position_swap_collision"]
+
+
+def test_collision_records_visit_to_current_position():
+    env = GridWorldEnv(
+        grid_size=5,
+        dynamics_stochasticity=0.0,
+        expert_stochasticity=0.0,
+    )
+    env.reset(seed=42)
+
+    env._explorer_position = np.array([0, 3])
+    env._expert_position = np.array([0, 4])
+
+    initial_visits = env._visit_counts[0, 3]
+
+    _, _, _, _, info = env.step(3)
+
+    assert info["collision"]
+    assert env._visit_counts[0, 3] == initial_visits + 1

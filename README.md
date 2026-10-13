@@ -37,8 +37,8 @@ exploration method, the neural-network architecture, or the implementation.
 The GridWorld is represented through image observations rather than a
 vector representation of the state.
 
-This creates a simple setting in which function approximation is required while
-the underlying environment remains easy to understand.
+This creates a simple setting in which function approximation can be used
+while the underlying environment remains easy to understand.
 
 The current implementation uses RGB observations with shape:
 
@@ -59,6 +59,9 @@ Both agents move in the same environment.
 The current expert policy moves toward a goal using a deterministic
 shortest-path heuristic, with optional stochastic deviations.
 
+More precisely, the deterministic expert prioritizes vertical movement
+toward the goal, followed by horizontal movement.
+
 This is a preliminary expert policy, not a policy obtained by solving a
 Markov game.
 
@@ -70,9 +73,12 @@ Our environment is intended to support the same general interaction pattern,
 without necessarily reproducing the reference environment's exact dynamics,
 rewards, or experimental configurations.
 
-The current implementation does not yet define a complete Markov game with
-game-theoretic expert policies. This will need to be addressed before
-evaluating downstream multi-agent imitation learning performance.
+The current implementation includes interactions through joint transitions
+and collision handling.
+
+However, it does not yet define a complete Markov game with game-theoretic
+expert policies. This will need to be addressed before evaluating downstream
+multi-agent imitation learning performance.
 
 ### Fixed goal position
 
@@ -119,10 +125,96 @@ The current environment has five discrete actions:
 Actions that would move an agent outside the grid are clipped to the
 grid boundaries.
 
-The current implementation permits agents to occupy the same cell.
+### Simultaneous movement and joint transitions
 
-Collision handling and interactions between agents remain design decisions
-to validate.
+The environment uses simultaneous movement.
+
+At each environment step:
+
+1. The explorer selects an action.
+2. The fixed expert policy selects an action based on the current state.
+3. Environment stochasticity is applied independently to both actions.
+4. The intended next positions of both agents are calculated.
+5. Potential collisions are checked.
+6. Both positions are updated simultaneously.
+
+The next joint state therefore depends on the actions of both agents.
+
+This introduces interactions between the agents while keeping the
+environment simple enough to analyze.
+
+### Collision handling
+
+Two types of collisions are implemented.
+
+**Same-cell collision**
+
+If both agents attempt to occupy the same cell after executing their
+actions, neither agent moves.
+
+**Position-swap collision**
+
+If the agents attempt to exchange positions in a single step, neither
+agent moves.
+
+When neither collision occurs, both agents move to their intended next
+positions.
+
+Consequently, the agents cannot move into the same cell or exchange
+positions during normal environment transitions.
+
+The environment reports collision information through the `info`
+dictionary returned by `step()`:
+
+- `collision`
+- `same_cell_collision`
+- `position_swap_collision`
+
+This information can be useful when analyzing how exploration affects
+the expert's movement.
+
+For example, an explorer may prevent the expert from moving toward
+its goal by occupying a strategically relevant position.
+
+Collision handling is an initial design choice inspired by the reference
+GridWorld environment.
+
+Its effect on exploration and expert-policy recovery should be evaluated
+before the main experiments.
+
+### Expert policy and limitations
+
+The current expert follows a fixed goal-directed policy.
+
+In the deterministic case, the expert:
+
+1. Moves vertically toward the goal until it reaches the correct row.
+2. Moves horizontally toward the goal until it reaches the correct column.
+3. Requests `STAY` once it reaches the goal.
+
+The expert does not explicitly consider the explorer's position when
+selecting an action.
+
+However, its actual movement depends on the explorer because collisions
+can prevent the requested action from being executed.
+
+For example, if the explorer blocks the expert's preferred route, the
+expert may repeatedly attempt the same action rather than choosing
+an alternative path.
+
+Therefore, the environment currently provides:
+
+- **Interactive transition dynamics:** the explorer can influence the
+  expert's trajectory.
+- **A fixed expert policy:** the expert follows a predefined heuristic.
+- **No strategic expert planning:** the expert does not calculate a
+  best response or adapt its route to avoid the explorer.
+
+This distinction is important for the thesis.
+
+The environment is suitable as an initial setting for studying
+exploration behaviour, but additional work is required before it can
+support meaningful game-theoretic evaluation of MAIL.
 
 ### Sources of stochasticity
 
@@ -154,6 +246,9 @@ When `dynamics_stochasticity = 0`, requested actions are always executed.
 
 When `dynamics_stochasticity = 1`, every requested action is replaced by
 a different action.
+
+The resulting executed actions are then used to calculate intended
+movements and determine whether a collision occurs.
 
 #### Expert stochasticity
 
@@ -196,6 +291,19 @@ Simple state coverage and visitation heatmaps can be used as initial
 diagnostic metrics, but they are not sufficient on their own to evaluate
 exploration for MAIL.
 
+The introduction of collisions makes this distinction particularly
+relevant.
+
+An exploration strategy might visit many different cells without
+interacting meaningfully with the expert.
+
+Another strategy might achieve lower overall coverage but repeatedly
+encounter situations in which the expert's behaviour is affected by
+the explorer.
+
+Whether these interactions provide more useful information for
+imitation learning remains an experimental question.
+
 ### State coverage
 
 The current implementation records how often the explorer visits each
@@ -223,6 +331,9 @@ multi-agent environment.
 
 Joint-state coverage and expert-relevant coverage should be considered
 when defining the experimental metrics.
+
+Collision frequency may also be useful as a diagnostic, although it
+does not directly measure how informative the collected data is.
 
 ## Exploration Methods
 
@@ -331,6 +442,11 @@ The initial GridWorld infrastructure supports:
 - five discrete actions,
 - a fixed goal location,
 - random initial agent positions,
+- simultaneous movement,
+- joint transitions,
+- same-cell collision handling,
+- position-swap collision handling,
+- collision diagnostics,
 - independently configurable environment stochasticity,
 - independently configurable expert stochasticity,
 - reproducible random seeds,
@@ -347,6 +463,9 @@ where intrinsic rewards will be supplied by the exploration algorithm.
 It does not yet provide the game-theoretic rewards required for evaluating
 equilibrium recovery.
 
+The expert is currently a goal-following heuristic rather than a
+game-theoretically derived expert policy.
+
 ## Design Decisions to Validate
 
 Several details of the current GridWorld are implementation choices rather
@@ -362,15 +481,23 @@ These should be validated before the main experiments:
 - expert behaviour at the goal,
 - definition of environment stochasticity,
 - definition of expert stochasticity,
-- treatment of collisions and overlapping entities,
-- interaction between the two agents,
+- treatment of collisions,
+- whether the expert should react strategically to the explorer,
 - definition of joint-state coverage,
 - definition of expert-relevant coverage,
 - collection of expert demonstrations,
 - integration with the deep MAIL pipeline,
 - evaluation of recovered policies.
 
-The fixed-goal decision has been implemented and tested.
+The following design decisions have been implemented and tested:
+
+- fixed goal position,
+- simultaneous movement,
+- same-cell collision handling,
+- position-swap collision handling.
+
+These decisions may be revisited based on the requirements of the
+exploration experiments.
 
 ## Testing
 
@@ -381,14 +508,18 @@ The environment has automated tests covering:
 - goal placement for different grid sizes,
 - initial positions away from the goal,
 - invalid grid sizes,
-- deterministic expert behaviour,
+- deterministic expert behaviour without obstruction,
 - deterministic environment dynamics,
 - stochastic environment dynamics,
 - stochastic expert behaviour,
 - reproducibility,
 - visitation counts,
 - explorer-position coverage,
-- image encoding when entities overlap.
+- image encoding when entities overlap,
+- same-cell collisions,
+- position-swap collisions,
+- simultaneous movement without collisions,
+- visitation counting after collisions.
 
 Run the tests using:
 
@@ -396,7 +527,7 @@ Run the tests using:
 python -m pytest -q
 ```
 
-At the current checkpoint, all 16 tests pass.
+At the current checkpoint, all 20 tests pass.
 
 ## Next Steps
 
@@ -404,8 +535,9 @@ Before implementing the exploration algorithms:
 
 1. Continue examining the reference deep MAIL environment and exploration
    interface.
-2. Determine which GridWorld design choices should be kept or changed.
-3. Define the interaction between the exploring agent and the fixed expert.
+2. Evaluate whether the current goal-following expert is appropriate for
+   studying informative exploration.
+3. Determine whether additional game-theoretic structure is required.
 4. Define joint-state coverage and other experimental metrics.
 5. Establish how exploration data will be used for expert-policy recovery.
 6. Finalize the interfaces required by ProtoRL and Disagreement.

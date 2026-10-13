@@ -66,8 +66,8 @@ class GridWorldEnv(gym.Env):
 
         self._step_count = 0
 
-        # The goal stays fixed across episodes.
-        # Both agents start at random positions away from the goal.
+        # Both agents start at random, distinct positions.
+        # Neither agent starts on the fixed goal.
         self._explorer_position = self._sample_position(
             excluded_positions=[self._goal_position]
         )
@@ -91,34 +91,76 @@ class GridWorldEnv(gym.Env):
         return observation, {}
 
     def step(self, action):
-        executed_action = self._apply_dynamics_stochasticity(action)
-        direction = self._action_to_direction[executed_action]
+        # 1. Save the current joint state.
+        current_explorer_position = self._explorer_position.copy()
+        current_expert_position = self._expert_position.copy()
 
-        new_position = self._explorer_position + direction
+        # 2. Determine both requested actions.
+        explorer_action = action
+        expert_action = self._get_expert_action()
 
-        self._explorer_position = np.clip(
-            new_position,
-            0,
-            self.grid_size - 1,
+        # 3. Apply environment stochasticity independently.
+        explorer_executed_action = self._apply_dynamics_stochasticity(
+            explorer_action
         )
 
-        self._record_explorer_visit()
-
-        expert_action = self._get_expert_action()
         expert_executed_action = self._apply_dynamics_stochasticity(
             expert_action
         )
+
+        # 4. Calculate both intended next positions.
+        explorer_direction = self._action_to_direction[
+            explorer_executed_action
+        ]
+
         expert_direction = self._action_to_direction[
             expert_executed_action
         ]
 
-        new_expert_position = self._expert_position + expert_direction
-
-        self._expert_position = np.clip(
-            new_expert_position,
+        intended_explorer_position = np.clip(
+            current_explorer_position + explorer_direction,
             0,
             self.grid_size - 1,
         )
+
+        intended_expert_position = np.clip(
+            current_expert_position + expert_direction,
+            0,
+            self.grid_size - 1,
+        )
+
+        # 5. Check for collisions.
+        same_cell_collision = np.array_equal(
+            intended_explorer_position,
+            intended_expert_position,
+        )
+
+        position_swap_collision = (
+            np.array_equal(
+                intended_explorer_position,
+                current_expert_position,
+            )
+            and np.array_equal(
+                intended_expert_position,
+                current_explorer_position,
+            )
+        )
+
+        collision = (
+            same_cell_collision
+            or position_swap_collision
+        )
+
+        # 6. Update both agents simultaneously.
+        if collision:
+            self._explorer_position = current_explorer_position
+            self._expert_position = current_expert_position
+        else:
+            self._explorer_position = intended_explorer_position
+            self._expert_position = intended_expert_position
+
+        # 7. Record the explorer's actual visited position.
+        self._record_explorer_visit()
 
         self._step_count += 1
 
@@ -129,10 +171,13 @@ class GridWorldEnv(gym.Env):
         truncated = self._step_count >= self.max_steps
 
         info = {
-            "requested_action": action,
-            "executed_action": executed_action,
+            "requested_action": explorer_action,
+            "executed_action": explorer_executed_action,
             "expert_requested_action": expert_action,
             "expert_executed_action": expert_executed_action,
+            "collision": collision,
+            "same_cell_collision": same_cell_collision,
+            "position_swap_collision": position_swap_collision,
         }
 
         return observation, reward, terminated, truncated, info
