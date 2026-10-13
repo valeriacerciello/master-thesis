@@ -3,90 +3,109 @@
 This repository contains the experimental work for my Master's thesis on
 exploration in deep multi-agent imitation learning (MAIL).
 
-## Research Goal
+## 1. Research Goal
 
 The goal is to investigate whether unsupervised reinforcement learning
 exploration methods can improve the exploration phase of deep MAIL.
 
-In particular, the experiments will compare exploration strategies that use
-different principles, starting with:
+The initial experiments will compare two exploration strategies based on
+different principles:
 
-- **ProtoRL** — state coverage / novelty
-- **Disagreement** — dynamics uncertainty
+- **ProtoRL:** state novelty and coverage.
+- **Disagreement:** uncertainty about environment dynamics.
 
-The main question is not only whether an exploration method achieves broad
-coverage, but whether it visits states that are informative for recovering the
-expert policy.
+The main research question is not simply whether an exploration method
+achieves broad state coverage, but whether it visits states that provide
+useful information for recovering the expert policy.
 
-The objective is not to reproduce the experiments from the reference MAIL
-implementation. Instead, the implementation provides a starting point for
-understanding the exploration problem and designing experiments that isolate
-the effects of different exploration strategies.
+In particular, the experiments aim to investigate:
 
-## Initial Experimental Setup
+1. How different exploration strategies behave in multi-agent environments.
+2. Whether they achieve different forms of state coverage.
+3. How their performance changes under stochastic expert policies and
+   stochastic environment dynamics.
+4. Whether better exploration coverage translates into better
+   expert-policy recovery.
+5. Whether exploration strategies should specifically target states
+   informative about expert behaviour.
 
-The first experiments use a deliberately simple GridWorld.
+The objective is not to reproduce the experiments from the reference
+MAIL implementation.
 
-The purpose of starting with a simple environment is to make the behaviour of
-the exploration algorithms interpretable. If an experiment fails in a complex
-environment, it can be difficult to distinguish between a problem with the
-exploration method, the neural-network architecture, or the implementation.
+Instead, the reference implementation provides a starting point for
+understanding the exploration problem and designing experiments that
+isolate the effects of different exploration strategies.
 
-### Image-based observations
+---
 
-The GridWorld is represented through image observations rather than a
-vector representation of the state.
+## 2. Initial Experimental Setup
 
-This creates a simple setting in which function approximation can be used
-while the underlying environment remains easy to understand.
+The first experiments use a deliberately simple image-based GridWorld.
 
-The current implementation uses RGB observations with shape:
+Starting with a simple environment allows us to understand exploration
+behaviour before introducing more complex environments and learning
+algorithms.
+
+### 2.1 Image-based observations
+
+The environment provides RGB observations with shape:
 
 `(grid_size, grid_size, 3)`
 
-Each entity is represented by a different colour.
+Each grid cell is represented by a pixel, and different entities are
+represented by different colours.
 
-### Two-agent environment
+The observation encodes:
 
-The GridWorld contains two agents:
+- Explorer position.
+- Expert position.
+- Goal position.
 
-1. An **exploring agent**, whose actions are supplied by the exploration
-   algorithm.
-2. An **expert agent**, which follows a fixed policy.
+This provides a simple image-based environment suitable for experimenting
+with representation learning and deep reinforcement learning.
 
-Both agents move in the same environment.
+### 2.2 Two-agent environment
 
-The current expert policy moves toward a goal using a deterministic
-shortest-path heuristic, with optional stochastic deviations.
+The environment contains two agents:
 
-More precisely, the deterministic expert prioritizes vertical movement
-toward the goal, followed by horizontal movement.
+**Explorer**
 
-This is a preliminary expert policy, not a policy obtained by solving a
-Markov game.
+The explorer is controlled by the exploration algorithm.
 
-In the reference deep MAIL implementation, exploration can be performed
-against a fixed expert policy, with both players' actions determining the
-next joint state.
+Its purpose is to visit states that may provide useful information about
+the fixed expert policy.
 
-Our environment is intended to support the same general interaction pattern,
-without necessarily reproducing the reference environment's exact dynamics,
-rewards, or experimental configurations.
+**Expert**
 
-The current implementation includes interactions through joint transitions
-and collision handling.
+The expert follows a fixed goal-directed policy.
 
-However, it does not yet define a complete Markov game with game-theoretic
-expert policies. This will need to be addressed before evaluating downstream
-multi-agent imitation learning performance.
+In the current implementation, the expert is a simple heuristic agent,
+not a policy obtained by solving a Markov game.
 
-### Fixed goal position
+Both agents move in the same environment, and their actions jointly
+determine the next state.
 
-The initial GridWorld uses a fixed goal position in the top-right corner:
+The explorer can influence the expert's movement through collisions.
+
+However, the expert does not strategically adapt its policy to the
+explorer.
+
+This distinction is important because the current environment is
+primarily intended for developing and testing exploration methods.
+
+It does not yet support a complete game-theoretic evaluation of MAIL.
+
+### 2.3 Goal position
+
+The goal is fixed in the top-right corner:
 
 `goal_position = (0, grid_size - 1)`
 
-For the default 10 × 10 grid, this corresponds to:
+For a 5 × 5 grid:
+
+`goal_position = (0, 4)`
+
+For a 10 × 10 grid:
 
 `goal_position = (0, 9)`
 
@@ -94,25 +113,19 @@ The goal remains unchanged across episodes.
 
 At the beginning of each episode:
 
-- the explorer starts at a randomly sampled position,
-- the expert starts at a randomly sampled position,
-- the two starting positions are distinct,
-- neither agent starts on the goal.
+- The explorer starts at a randomly sampled position.
+- The expert starts at a randomly sampled position.
+- The two agents start in different cells.
+- Neither agent starts on the goal.
 
-A fixed goal reduces variability between episodes and makes exploration
-strategies easier to compare.
+A fixed goal reduces experimental variability and simplifies the
+interpretation of exploration behaviour.
 
-It also simplifies the analysis of state visitation and expert behaviour.
+Randomized goals may be considered in later experiments.
 
-This is an experimental design decision rather than a requirement of the
-reference MAIL algorithm.
+### 2.4 Action space
 
-Randomized goals may be introduced later as an additional experimental
-condition.
-
-### Actions
-
-The current environment has five discrete actions:
+The environment supports five discrete actions:
 
 | Action | Movement |
 |---|---|
@@ -122,248 +135,162 @@ The current environment has five discrete actions:
 | 3 | Right |
 | 4 | Stay |
 
-Actions that would move an agent outside the grid are clipped to the
-grid boundaries.
+Actions that would move an agent outside the grid are clipped to
+the grid boundaries.
 
-### Simultaneous movement and joint transitions
+### 2.5 Simultaneous movement
 
-The environment uses simultaneous movement.
+Both agents move simultaneously.
 
-At each environment step:
+At each environment interaction:
 
 1. The explorer selects an action.
-2. The fixed expert policy selects an action based on the current state.
+2. The expert selects an action according to its fixed policy.
 3. Environment stochasticity is applied independently to both actions.
-4. The intended next positions of both agents are calculated.
-5. Potential collisions are checked.
-6. Both positions are updated simultaneously.
+4. Both intended next positions are calculated.
+5. Collisions are checked.
+6. Both agents' positions are updated simultaneously.
 
 The next joint state therefore depends on the actions of both agents.
 
-This introduces interactions between the agents while keeping the
-environment simple enough to analyze.
-
-### Collision handling
+### 2.6 Collision handling
 
 Two types of collisions are implemented.
 
 **Same-cell collision**
 
-If both agents attempt to occupy the same cell after executing their
-actions, neither agent moves.
+If both agents attempt to occupy the same cell, neither agent moves.
 
 **Position-swap collision**
 
-If the agents attempt to exchange positions in a single step, neither
-agent moves.
+If the agents attempt to exchange positions in a single step,
+neither agent moves.
 
-When neither collision occurs, both agents move to their intended next
-positions.
+When no collision occurs, both agents move to their intended positions.
 
-Consequently, the agents cannot move into the same cell or exchange
-positions during normal environment transitions.
-
-The environment reports collision information through the `info`
-dictionary returned by `step()`:
+Collision information is returned through the environment's `info`
+dictionary:
 
 - `collision`
 - `same_cell_collision`
 - `position_swap_collision`
 
-This information can be useful when analyzing how exploration affects
-the expert's movement.
+Collisions introduce interactions between the explorer and the expert.
 
-For example, an explorer may prevent the expert from moving toward
-its goal by occupying a strategically relevant position.
+For example, the explorer may block the expert's preferred movement.
 
-Collision handling is an initial design choice inspired by the reference
-GridWorld environment.
+However, the current expert does not explicitly plan around obstacles
+or choose alternative paths when blocked.
 
-Its effect on exploration and expert-policy recovery should be evaluated
-before the main experiments.
+### 2.7 Expert policy
 
-### Expert policy and limitations
+The deterministic expert follows a goal-directed heuristic.
 
-The current expert follows a fixed goal-directed policy.
+Its action-selection rule is:
 
-In the deterministic case, the expert:
+1. Move vertically toward the goal.
+2. Once the correct row is reached, move horizontally toward the goal.
+3. Stay when the goal is reached.
 
-1. Moves vertically toward the goal until it reaches the correct row.
-2. Moves horizontally toward the goal until it reaches the correct column.
-3. Requests `STAY` once it reaches the goal.
+The requested action depends on the expert's position relative to
+the goal.
 
-The expert does not explicitly consider the explorer's position when
-selecting an action.
+It does not explicitly depend on the explorer's position.
 
-However, its actual movement depends on the explorer because collisions
-can prevent the requested action from being executed.
+Nevertheless, the explorer can influence the expert's actual trajectory
+through collision handling.
 
-For example, if the explorer blocks the expert's preferred route, the
-expert may repeatedly attempt the same action rather than choosing
-an alternative path.
+The expert is therefore interactive at the level of environment
+dynamics, but it is not a strategic best-response policy.
 
-Therefore, the environment currently provides:
+This is a limitation of the initial setup.
 
-- **Interactive transition dynamics:** the explorer can influence the
-  expert's trajectory.
-- **A fixed expert policy:** the expert follows a predefined heuristic.
-- **No strategic expert planning:** the expert does not calculate a
-  best response or adapt its route to avoid the explorer.
+### 2.8 Sources of stochasticity
 
-This distinction is important for the thesis.
-
-The environment is suitable as an initial setting for studying
-exploration behaviour, but additional work is required before it can
-support meaningful game-theoretic evaluation of MAIL.
-
-### Two-phase experimental approach
-
-The initial experiments will follow a two-phase approach.
-
-**Phase 1 — Exploration baseline**
-
-Use the current goal-following expert to develop, test, and compare
-exploration strategies.
-
-The purpose is to investigate how ProtoRL and Disagreement behave in a
-simple environment with image observations, joint transitions, and
-configurable stochasticity.
-
-This phase focuses on exploration behaviour and diagnostic metrics rather
-than equilibrium recovery.
-
-**Phase 2 — MAIL evaluation**
-
-Introduce an expert whose decisions depend meaningfully on the joint state.
-
-The purpose is to investigate whether different exploration strategies
-collect data that improves expert-policy recovery.
-
-Additional game-theoretic structure, including suitable rewards and
-expert policies, may be required to evaluate downstream MAIL performance.
-
-This two-phase approach is a provisional experimental plan and should be
-reviewed with the thesis supervisor before the main experiments.
-
-### Sources of stochasticity
-
-Two sources of stochasticity can be independently controlled:
-
-1. **Environment dynamics**
-2. **Expert policy**
-
-This allows the exploration methods to be studied under different conditions:
-
-| Environment dynamics | Expert policy |
-|---|---|
-| Deterministic | Deterministic |
-| Deterministic | Stochastic |
-| Stochastic | Deterministic |
-| Stochastic | Stochastic |
+Two sources of stochasticity are independently configurable.
 
 #### Environment stochasticity
 
-The parameter `dynamics_stochasticity` controls the probability that a
-requested action is replaced by another randomly selected action.
+The parameter:
 
-The replacement is sampled uniformly from the other available actions.
+`dynamics_stochasticity`
 
-This mechanism is applied independently to the explorer's and expert's
-requested actions.
+controls the probability that a requested action is replaced by a
+different randomly selected action.
 
-When `dynamics_stochasticity = 0`, requested actions are always executed.
+The replacement action is sampled uniformly from the other available
+actions.
 
-When `dynamics_stochasticity = 1`, every requested action is replaced by
-a different action.
+This mechanism is applied independently to the explorer and expert.
 
-The resulting executed actions are then used to calculate intended
-movements and determine whether a collision occurs.
+- `0.0`: requested actions are always executed.
+- `1.0`: requested actions are always replaced by another action.
+
+The resulting executed actions determine the intended movements and
+possible collisions.
 
 #### Expert stochasticity
 
-The parameter `expert_stochasticity` controls the probability that the
-expert deviates from its deterministic goal-following action.
+The parameter:
 
-When a deviation occurs, the expert selects uniformly from the other
-available actions.
+`expert_stochasticity`
 
-When `expert_stochasticity = 0`, the expert always requests its
-deterministic goal-following action.
+controls the probability that the expert deviates from its deterministic
+goal-following action.
 
-When `expert_stochasticity = 1`, the expert always requests a different
-action.
+When a deviation occurs, another action is sampled uniformly from
+the remaining actions.
 
-These definitions are initial implementation choices. Alternative models
-of stochasticity may be considered if they are more appropriate for the
-experiments.
+- `0.0`: the expert always requests its deterministic action.
+- `1.0`: the expert always requests a different action.
 
-Separating the two sources of stochasticity is particularly important for
-uncertainty-based exploration.
+These definitions are implementation choices and may be revisited
+depending on the experimental objectives.
 
-For example, dynamics disagreement may reflect uncertainty caused by
-insufficient experience, but it may also be affected by inherently
-stochastic transitions.
+### 2.9 Experimental configurations
 
-### What exploration should achieve
+The two sources of stochasticity allow four configurations:
 
-The exploring agent itself is not the final object of interest.
+| Configuration | Dynamics | Expert |
+|---|---|---|
+| 1 | Deterministic | Deterministic |
+| 2 | Deterministic | Stochastic |
+| 3 | Stochastic | Deterministic |
+| 4 | Stochastic | Stochastic |
 
-Its purpose is to visit states in which observing or querying the fixed
-expert provides useful information for imitation learning.
+These configurations are intended to investigate how exploration
+strategies behave under different forms of uncertainty.
 
-Therefore, the experiments should distinguish between:
+They are particularly relevant for Disagreement, whose intrinsic
+reward depends on uncertainty in predicted transitions.
 
-- **general state coverage**, and
-- **coverage of states that are informative for expert-policy recovery**.
+For the initial random baseline, only the fully deterministic
+configuration has been tested.
 
-Simple state coverage and visitation heatmaps can be used as initial
-diagnostic metrics, but they are not sufficient on their own to evaluate
-exploration for MAIL.
+---
 
-The introduction of collisions makes this distinction particularly
-relevant.
+## 3. Coverage Evaluation
 
-An exploration strategy might visit many different cells without
-interacting meaningfully with the expert.
-
-Another strategy might achieve lower overall coverage but repeatedly
-encounter situations in which the expert's behaviour is affected by
-the explorer.
-
-Whether these interactions provide more useful information for
-imitation learning remains an experimental question.
-
-## Coverage Metrics
-
-The implementation distinguishes between two types of coverage:
+The evaluation infrastructure distinguishes between:
 
 1. Explorer-position coverage.
 2. Joint-state coverage.
 
-Both metrics are available at two levels:
+Both metrics are available at the episode level and cumulatively
+across multiple episodes.
 
-- **Episode-level coverage**, recorded by the GridWorld environment.
-- **Cumulative coverage**, recorded by a separate evaluation component.
+### 3.1 Explorer-position coverage
 
-### Explorer-position coverage
-
-The environment records how often the explorer visits each grid cell.
-
-The corresponding coverage metric is:
-
-`number of unique explorer cells visited / total number of grid cells`
+Explorer-position coverage measures the fraction of grid cells
+visited by the explorer.
 
 For a grid containing N cells:
 
 `C_explorer = unique_explorer_positions / N`
 
-For the default 10 × 10 grid:
+For a 5 × 5 grid:
 
-`N = 100`
-
-This metric measures how broadly the explorer moves through the grid.
-
-It does not account for the expert's position.
+`N = 25`
 
 The episode-level metric is available through:
 
@@ -371,64 +298,51 @@ The episode-level metric is available through:
 env.get_state_coverage()
 ```
 
-The underlying visitation counts are stored in:
+The corresponding visitation counts are stored in:
 
 ```python
 env._visit_counts
 ```
 
-### Joint-state coverage
+### 3.2 Joint-state coverage
 
-The environment also records visits to joint states containing the
-positions of both agents.
+Joint-state coverage considers the positions of both agents.
 
 A joint state is represented as:
 
-`state = (explorer_row, explorer_col, expert_row, expert_col)`
+`(explorer_row, explorer_col, expert_row, expert_col)`
 
 For example:
 
-`state = (2, 3, 5, 6)`
+`(1, 2, 3, 4)`
 
 and:
 
-`state = (2, 3, 7, 8)`
+`(1, 2, 4, 3)`
 
-are different joint states, even though the explorer occupies the same
-cell in both cases.
+represent different joint states.
+
+This distinction is important because the explorer may occupy the
+same cell while encountering the expert in different positions.
 
 #### Number of possible joint states
 
-For a grid containing N cells, each agent can occupy one of those cells.
-
-Without collision restrictions, there would be:
-
-`N²`
-
-possible joint states.
-
-However, the current collision rules prevent the agents from occupying
-the same cell during normal environment transitions.
-
-Therefore, the number of valid joint states is:
+If the grid contains N cells, and both agents must occupy
+different cells, the number of valid joint states is:
 
 `N × (N - 1)`
 
-For the default 10 × 10 grid:
+For a 5 × 5 grid:
 
-`N = 100`
+`25 × 24 = 600`
 
-`total_joint_states = 100 × 99 = 9900`
+For a 10 × 10 grid:
 
-This denominator counts all configurations with distinct agent positions.
-It does not imply that every configuration will be visited by the current
-expert policy during a finite experiment.
+`100 × 99 = 9900`
 
-#### Joint-state coverage metric
+The joint-state coverage metric is:
 
-Joint-state coverage is defined as:
-
-`C_joint = unique_joint_states_visited / (N × (N - 1))`
+`C_joint = unique_joint_states / (N × (N - 1))`
 
 The episode-level metric is available through:
 
@@ -436,112 +350,94 @@ The episode-level metric is available through:
 env.get_joint_state_coverage()
 ```
 
-The underlying visitation counts are stored in:
+The corresponding visitation counts are stored in:
 
 ```python
 env._joint_visit_counts
 ```
 
-The dictionary maps each joint state to the number of times it has
-been visited.
+The denominator counts all configurations with distinct agent
+positions, not only those reachable under a particular expert
+policy and interaction budget.
 
-For example:
-
-```python
-{
-    (2, 3, 5, 6): 4,
-    (2, 3, 4, 6): 2,
-}
-```
-
-Both states contribute once to the coverage numerator, regardless of
-how often they are visited.
-
-### Episode-level coverage tracking
+### 3.3 Episode-level coverage
 
 The GridWorld records:
 
-1. The initial state when `reset()` is called.
-2. The resulting state after every `step()`.
+- The initial state when `reset()` is called.
+- The resulting state after every environment interaction.
 
-If a collision prevents both agents from moving, the current state
-is recorded again.
+Repeated visits increase visitation counts but do not increase
+the number of unique states.
 
-Repeated visits increase visitation counts but do not increase coverage.
+When a collision prevents movement, the resulting state is
+recorded again.
 
-Both environment-level coverage trackers are reset at the beginning
-of every episode.
+Episode-level visitation counts are reset whenever the
+environment is reset.
 
-Therefore, the environment's coverage methods measure coverage within
-a single episode.
+---
 
-## Cumulative Coverage Evaluation
+## 4. Cumulative Coverage Tracking
 
-Cumulative coverage is implemented separately from the GridWorld in:
+Cumulative coverage is implemented in:
 
 `evaluation/coverage.py`
 
-The `CoverageTracker` class tracks visited explorer positions and joint
-states across multiple episodes.
+The `CoverageTracker` class records coverage across multiple
+episodes.
 
-This separation is intentional.
+This component is independent of the GridWorld environment.
 
-The GridWorld is responsible for environment dynamics, while the
-evaluation component is responsible for measuring exploration progress.
+The separation allows the same evaluation procedure to be reused
+for different exploration algorithms.
 
-The same evaluation component can therefore be reused for different
-exploration algorithms.
+### 4.1 Why cumulative coverage?
 
-### Why cumulative coverage is needed
+Episode-level coverage measures the states visited during
+one episode.
 
-Episode-level coverage measures the states visited during one episode.
+However, exploration algorithms typically interact with the
+environment across many episodes.
 
-However, exploration algorithms are generally trained and evaluated
-over many episodes.
-
-We therefore want to measure how many distinct states an algorithm
-discovers throughout the exploration process.
+We therefore want to measure the total number of distinct
+states discovered throughout the exploration process.
 
 For example:
 
-| Episode | Joint states visited |
+| Episode | States visited |
 |---|---|
 | 1 | A, B, C |
 | 2 | B, C, D |
 | 3 | C, D, E |
 
-Each episode visits three joint states.
-
-However, the cumulative number of distinct joint states is five:
+The cumulative set of visited states is:
 
 `{A, B, C, D, E}`
 
-Cumulative coverage is calculated using the union of visited states,
-not the sum or average of episode-level coverage.
+Therefore, cumulative coverage is based on the union of visited
+states rather than the sum of episode-level coverage values.
 
-### CoverageTracker
+### 4.2 CoverageTracker
 
 Create a tracker using:
 
 ```python
 from evaluation.coverage import CoverageTracker
 
-tracker = CoverageTracker(grid_size=10)
+tracker = CoverageTracker(grid_size=5)
 ```
 
 The tracker maintains:
 
-- `explorer_visit_counts`: cumulative explorer-position visitation counts.
-- `joint_visit_counts`: cumulative joint-state visitation counts.
-- `total_steps`: number of recorded environment interactions.
-- `coverage_history`: coverage measurements after each recorded interaction.
+- `explorer_visit_counts`
+- `joint_visit_counts`
+- `total_steps`
+- `coverage_history`
 
-The tracker is independent of the exploration algorithm.
+### 4.3 Recording initial states
 
-### Recording initial states
-
-At the beginning of each episode, reset the environment and record
-the initial state:
+At the beginning of each episode:
 
 ```python
 observation, info = env.reset()
@@ -552,17 +448,12 @@ tracker.record_state(
 )
 ```
 
-The `record_state()` method updates visitation counts without increasing
-the environment interaction counter.
+Recording the initial state updates visitation counts without
+incrementing the environment interaction counter.
 
-This is intentional because resetting the environment is not counted
-as an environment interaction.
+### 4.4 Recording environment interactions
 
-The tracker is not reset between episodes.
-
-### Recording environment interactions
-
-After executing an environment step:
+After each environment step:
 
 ```python
 observation, reward, terminated, truncated, info = env.step(action)
@@ -573,17 +464,14 @@ tracker.record_step(
 )
 ```
 
-The `record_step()` method:
+This method:
 
 1. Records the resulting explorer position.
 2. Records the resulting joint state.
 3. Increments the environment interaction counter.
-4. Stores the updated coverage measurements.
+4. Saves the current cumulative coverage values.
 
-This produces a coverage history indexed by the number of environment
-interactions.
-
-### Accessing cumulative coverage
+### 4.5 Cumulative coverage metrics
 
 Cumulative explorer-position coverage:
 
@@ -597,390 +485,548 @@ Cumulative joint-state coverage:
 tracker.get_joint_coverage()
 ```
 
-Both metrics return values between 0 and 1.
+Both values are between 0 and 1.
 
-For example, a value of `0.25` corresponds to 25% coverage.
+### 4.6 Coverage history
 
-### Coverage history
+The tracker stores coverage after every environment interaction.
 
-After each recorded environment interaction, the tracker stores an entry
-containing:
-
-- `step`
-- `explorer_coverage`
-- `joint_coverage`
-
-For example:
+Each entry contains:
 
 ```python
-[
-    {
-        "step": 1,
-        "explorer_coverage": 0.02,
-        "joint_coverage": 0.0002,
-    },
-    {
-        "step": 2,
-        "explorer_coverage": 0.03,
-        "joint_coverage": 0.0003,
-    },
-]
+{
+    "step": 1,
+    "explorer_coverage": 0.08,
+    "joint_coverage": 0.0033,
+}
 ```
 
 These values are illustrative.
 
-The actual coverage depends on the grid size and the visited states.
+The history allows coverage to be plotted against the number of
+environment interactions.
 
-This history will allow us to plot coverage against environment
-interactions.
+This will be useful for comparing the exploration efficiency of
+different algorithms under identical interaction budgets.
 
-### Comparing exploration efficiency
+### 4.7 Episode-level versus cumulative coverage
 
-Tracking coverage over environment interactions will allow us to compare
-not only how much of the state space an algorithm explores, but also
-how quickly it discovers new states.
+| Property | Episode-level | Cumulative |
+|---|---|---|
+| Component | GridWorld | CoverageTracker |
+| Resets between episodes | Yes | No |
+| Explorer-position coverage | Yes | Yes |
+| Joint-state coverage | Yes | Yes |
+| Tracks coverage over interactions | No | Yes |
+| Main purpose | Analyze individual episodes | Compare exploration methods |
 
-For example, ProtoRL and Disagreement may eventually reach similar
-coverage while requiring different numbers of interactions.
+---
 
-Coverage curves can help identify these differences.
+## 5. Random Exploration Baseline
 
-To make the comparisons meaningful, experiments should use:
+The first exploration baseline is implemented in:
 
-- the same environment configuration,
-- the same interaction budget,
-- comparable random seeds,
-- the same coverage definitions,
-- the same evaluation procedure.
+`experiments/random_baseline.py`
 
-The evaluation should eventually be repeated across multiple seeds
-to account for variability.
+The explorer selects actions uniformly at random.
 
-### Limitations of cumulative coverage
+No intrinsic reward or learned exploration policy is used.
 
-Cumulative coverage measures the diversity of visited states.
+This baseline provides a simple reference against which ProtoRL
+and Disagreement can eventually be compared.
 
-It does not directly measure whether those states are informative for
-imitation learning.
+### 5.1 Experimental configuration
 
-This is especially important in the current GridWorld because the
-heuristic expert's requested action depends primarily on its own
-position rather than the complete joint state.
+The initial experiment uses:
 
-Therefore, visiting many different joint states may not provide
-proportionally more information about the expert policy.
+| Parameter | Value |
+|---|---|
+| Grid size | 5 × 5 |
+| Maximum steps per episode | 50 |
+| Number of episodes | 10 |
+| Total environment interactions | 500 |
+| Random seed | 42 |
+| Environment dynamics | Deterministic |
+| Expert policy | Deterministic |
+| Explorer policy | Uniform random |
 
-The main thesis experiments will need additional evaluation metrics
-that assess whether the collected exploration data improves
-expert-policy recovery.
+The expert follows the goal-directed heuristic described earlier.
 
-Potential future measurements include:
+The explorer selects one of the five actions with equal probability.
 
-- expert-policy prediction accuracy,
-- imitation performance,
-- coverage of states relevant to expert behaviour,
-- game-theoretic evaluation when suitable expert policies are available.
+### 5.2 Reproducibility
 
-These metrics have not yet been implemented.
+The experiment uses separate random generators for:
 
-## Exploration Methods
+- Explorer actions.
+- Environment transitions and initial positions.
 
-### ProtoRL
+The explorer's action space is seeded using the experiment seed.
 
-ProtoRL is used as the first state-coverage / novelty-based exploration
+Each episode resets the environment with a deterministic seed
+derived from the experiment seed and episode index.
+
+This makes the experiment reproducible when using the same
+configuration and software environment.
+
+### 5.3 Running the experiment
+
+From the project root:
+
+```bash
+python -m experiments.random_baseline
+```
+
+The script:
+
+1. Creates the GridWorld.
+2. Creates a cumulative coverage tracker.
+3. Runs the specified number of episodes.
+4. Records initial states and environment interactions.
+5. Prints the final coverage values.
+6. Generates the coverage curves.
+7. Generates the visitation heatmap.
+
+### 5.4 Initial results
+
+The first run produced:
+
+| Metric | Result |
+|---|---:|
+| Total environment interactions | 500 |
+| Explorer-position coverage | 100% |
+| Joint-state coverage | 12% |
+| Unique explorer positions | 25 |
+| Unique joint states | 72 |
+
+The explorer visited every cell in the grid.
+
+However, it visited only 72 of the 600 possible joint states.
+
+This illustrates that complete explorer-position coverage does not
+imply complete joint-state coverage.
+
+These results are preliminary and correspond to a single random seed.
+
+They should not be interpreted as representative performance
+estimates.
+
+### 5.5 Interpretation
+
+Explorer-position coverage reached 100% after approximately
+190 environment interactions.
+
+After this point, the explorer continued visiting previously
+discovered cells.
+
+Joint-state coverage continued increasing throughout the
+experiment, reaching 12% after 500 interactions.
+
+This suggests that the explorer continued discovering new
+configurations involving the expert even after all individual
+grid cells had been visited.
+
+However, neither metric directly measures whether the collected
+states are useful for expert-policy recovery.
+
+The usefulness of the visited states for imitation learning
+remains an open research question.
+
+---
+
+## 6. Visualization
+
+Visualization functions are implemented in:
+
+`evaluation/plots.py`
+
+The current implementation provides:
+
+1. Cumulative coverage curves.
+2. Explorer-position visitation heatmaps.
+
+Both figures are automatically generated by the random baseline
+experiment.
+
+### 6.1 Cumulative coverage curves
+
+The coverage plot is saved to:
+
+`results/random_baseline_coverage.png`
+
+It displays:
+
+- Explorer-position coverage.
+- Joint-state coverage.
+
+Both metrics are plotted against environment interactions.
+
+This makes it possible to investigate how quickly different
+exploration methods discover new states.
+
+The plot uses percentages, but the two metrics have different
+denominators.
+
+Therefore, their values should be interpreted separately.
+
+### 6.2 Explorer-position visitation heatmap
+
+The visitation heatmap is saved to:
+
+`results/random_baseline_heatmap.png`
+
+It displays the cumulative number of visits to each grid cell.
+
+Unlike coverage, which only distinguishes visited and unvisited
+states, the heatmap shows how frequently each position is visited.
+
+The initial experiment produced the following observations:
+
+- All 25 cells were visited.
+- The most frequently visited cell was `(0, 3)`, with 44 visits.
+- The least frequently visited cell was `(4, 0)`, with 2 visits.
+- The explorer appeared to visit the upper part of the grid
+  more frequently than the lower part.
+
+The visitation counts include:
+
+- 500 resulting states from environment interactions.
+- 10 initial states, one for each episode.
+
+Therefore, the total number of recorded explorer-position
+visits is:
+
+`500 + 10 = 510`
+
+The heatmap demonstrates that complete spatial coverage does
+not imply uniform visitation.
+
+However, the observed spatial distribution may be influenced
+by randomness, collision dynamics, and the expert's movement.
+
+Multiple seeds will be required before drawing general
+conclusions about visitation patterns.
+
+### 6.3 Relevance to MAIL
+
+The current visualizations characterize different aspects
+of exploration:
+
+| Metric | Interpretation |
+|---|---|
+| Explorer-position coverage | Number of distinct explorer positions |
+| Joint-state coverage | Number of distinct configurations involving both agents |
+| Visitation heatmap | Spatial distribution of exploration effort |
+| Coverage curves | Rate at which new states are discovered |
+
+These metrics are useful diagnostics.
+
+However, the main thesis objective is to determine whether
+exploration produces data that improves expert-policy recovery.
+
+Consequently, the experiments will eventually need metrics
+that evaluate the usefulness of visited states for imitation
+learning.
+
+---
+
+## 7. Planned Exploration Algorithms
+
+### 7.1 ProtoRL
+
+ProtoRL is the selected novelty-based exploration method.
+
+It uses learned representations and prototypes to encourage
+exploration of novel states.
+
+Conceptually:
+
+```text
+Image observation
+       ↓
+Representation encoder
+       ↓
+Learned representation
+       ↓
+Prototype-based novelty
+       ↓
+Intrinsic reward
+       ↓
+Exploration policy
+```
+
+The reference ProtoRL implementation is provided in the
+Unsupervised Reinforcement Learning Benchmark (URLB).
+
+The original implementation uses a continuous-action RL
+backbone.
+
+Since the current GridWorld has discrete actions, the
+ProtoRL-specific intrinsic reward and representation-learning
+components will need to be adapted to a discrete-action
+learning algorithm.
+
+A shared discrete-action backbone may be useful for comparing
+ProtoRL and Disagreement while isolating the effects of
+their exploration objectives.
+
+The exact adaptation has not yet been implemented.
+
+### 7.2 Disagreement
+
+Disagreement is the selected uncertainty-based exploration
 method.
 
-The reference implementation is the ProtoRL implementation provided in
-the URLB repository.
+It uses an ensemble of forward-dynamics models to predict
+the next representation of the environment.
 
-ProtoRL does not measure novelty directly from raw GridWorld coordinates.
-
-Instead, observations are mapped into a learned representation space
-using an encoder.
-
-ProtoRL learns prototypes in this representation space and uses a
-novelty-based intrinsic reward to encourage exploration.
+The intrinsic reward is based on disagreement between
+the models' predictions.
 
 Conceptually:
 
-pixel observation
-→ learned representation
-→ prototype-based novelty estimate
-→ intrinsic reward
-→ exploration policy
+```text
+Image observation
+       ↓
+Representation encoder
+       ↓
+Current representation + action
+       ↓
+Ensemble of forward models
+       ↓
+Predicted next representations
+       ↓
+Prediction disagreement
+       ↓
+Intrinsic reward
+       ↓
+Exploration policy
+```
 
-The original URLB implementation uses DDPG/DrQ-v2 as the underlying RL
-algorithm.
+The original URLB implementation uses a continuous-action
+RL backbone.
 
-This part is designed for continuous-control environments and therefore
-cannot be transferred directly to the discrete-action GridWorld.
+As with ProtoRL, the intrinsic-reward mechanism will need
+to be adapted to the discrete-action GridWorld.
 
-The ProtoRL-specific representation learning and intrinsic-reward mechanism
-should be kept conceptually separate from the RL backbone.
+An important experimental question is how Disagreement
+behaves under stochastic environment dynamics.
 
-A discrete-action RL method will therefore be required to optimize the
-ProtoRL intrinsic reward in the GridWorld.
+High prediction disagreement may reflect uncertainty
+caused by insufficient exploration, but stochastic
+transitions may also affect model predictions.
 
-The environment needs to provide transitions containing at least:
+The four environment configurations will help investigate
+this distinction.
 
-- current image observation,
-- explorer action,
-- next image observation.
+---
 
-The expert policy is not required to compute the ProtoRL intrinsic reward.
-
-Expert information will instead be relevant when evaluating whether the
-states visited during exploration are useful for imitation learning.
-
-### Disagreement
-
-Disagreement is used as the uncertainty-based exploration method.
-
-The reference implementation is the Disagreement implementation provided
-in the URLB repository.
-
-Disagreement learns an ensemble of forward-dynamics models.
-
-Each model receives the encoded current observation together with the
-action and predicts the encoded next observation.
-
-Conceptually:
-
-pixel observation
-→ learned representation
-→ representation + action
-→ ensemble of next-representation predictions
-→ variance across predictions
-→ intrinsic reward
-→ exploration policy
-
-The intrinsic reward is high when the ensemble models disagree about
-the predicted next representation.
-
-This provides a measure of uncertainty about the environment dynamics.
-
-The ensemble models are trained using transitions containing:
-
-- current image observation,
-- explorer action,
-- next image observation.
-
-As with ProtoRL, the original URLB implementation uses DDPG as the
-underlying RL algorithm.
-
-The Disagreement intrinsic-reward mechanism should therefore be separated
-from the continuous-control RL backbone and combined with a
-discrete-action RL method for the GridWorld.
-
-An important experimental question is how Disagreement behaves when the
-environment dynamics themselves are stochastic.
-
-In that case, prediction uncertainty may reflect inherent unpredictability
-rather than uncertainty that is useful for recovering the expert policy.
-
-The independently configurable dynamics stochasticity in the GridWorld
-will allow this to be investigated.
-
-## Current Status
-
-### GridWorld environment
-
-The initial GridWorld infrastructure supports:
-
-- image observations,
-- two moving agents,
-- five discrete actions,
-- a fixed goal location,
-- random initial agent positions,
-- simultaneous movement,
-- joint transitions,
-- same-cell collision handling,
-- position-swap collision handling,
-- collision diagnostics,
-- independently configurable environment stochasticity,
-- independently configurable expert stochasticity,
-- reproducible random seeds,
-- episode-level explorer-position visitation counts,
-- episode-level explorer-position coverage,
-- episode-level joint-state visitation counts,
-- episode-level joint-state coverage.
-
-The environment currently provides zero reward to the exploring agent.
-
-This is suitable as an initial interface for reward-free exploration,
-where intrinsic rewards will be supplied by the exploration algorithm.
-
-It does not yet provide the game-theoretic rewards required for evaluating
-equilibrium recovery.
-
-The expert is currently a goal-following heuristic rather than a
-game-theoretically derived expert policy.
-
-### Evaluation infrastructure
-
-The evaluation component currently supports:
-
-- cumulative explorer-position visitation counts,
-- cumulative joint-state visitation counts,
-- cumulative coverage across episodes,
-- environment interaction counting,
-- coverage history indexed by interactions,
-- resetting cumulative statistics,
-- validation of recorded positions.
-
-The coverage tracker has been tested independently and through
-integration tests with the GridWorld.
-
-The integration test runs two episodes using random explorer actions,
-records the initial state of each episode, and tracks all resulting states.
-
-It verifies that:
-
-- the environment resets between episodes,
-- the cumulative tracker preserves previously visited states,
-- interaction counts remain correct,
-- coverage does not decrease,
-- coverage values remain within valid bounds.
-
-This provides the initial evaluation infrastructure needed to compare
-exploration methods using consistent coverage metrics.
-
-### Project structure
-
-The current relevant files are:
+## 8. Current Project Structure
 
 ```text
 master-thesis/
 ├── envs/
 │   └── gridworld.py
+│
 ├── evaluation/
-│   └── coverage.py
+│   ├── coverage.py
+│   └── plots.py
+│
+├── experiments/
+│   └── random_baseline.py
+│
 ├── tests/
 │   ├── test_gridworld.py
 │   ├── test_coverage.py
-│   └── test_coverage_integration.py
+│   ├── test_coverage_integration.py
+│   └── test_random_baseline.py
+│
+├── results/
+│   ├── random_baseline_coverage.png
+│   └── random_baseline_heatmap.png
+│
 ├── README.md
 └── requirements.txt
 ```
 
-## Design Decisions to Validate
+The `results/` directory currently contains the figures
+generated by the random baseline.
 
-Several details of the current GridWorld are implementation choices rather
-than requirements of the experimental setup.
+The organization separates:
 
-These should be validated before the main experiments:
+- Environment dynamics.
+- Evaluation metrics.
+- Experiment execution.
+- Automated tests.
+- Experimental results.
 
-- grid size,
-- episode horizon,
-- action set,
-- image encoding,
-- expert policy,
-- expert behaviour at the goal,
-- definition of environment stochasticity,
-- definition of expert stochasticity,
-- treatment of collisions,
-- whether the expert should react strategically to the explorer,
-- definition of expert-relevant coverage,
-- selection of experimental interaction budgets,
-- selection of evaluation seeds,
-- collection of expert demonstrations,
-- integration with the deep MAIL pipeline,
-- evaluation of recovered policies.
+This structure is intended to support the future integration
+of multiple exploration algorithms.
 
-The following components have been implemented and tested:
+---
 
-- fixed goal position,
-- simultaneous movement,
-- same-cell collision handling,
-- position-swap collision handling,
-- explorer-position coverage,
-- joint-state coverage,
-- cumulative coverage tracking,
-- coverage history over environment interactions.
+## 9. Testing
 
-These decisions may be revisited based on the requirements of the
-exploration experiments.
+The project uses `pytest` for automated testing.
 
-## Testing
-
-The project currently includes three test files:
-
-### `tests/test_gridworld.py`
-
-Tests the GridWorld environment, including:
-
-- valid and distinct initial positions,
-- fixed goal location,
-- goal placement for different grid sizes,
-- initial positions away from the goal,
-- invalid grid sizes,
-- deterministic expert behaviour without obstruction,
-- deterministic environment dynamics,
-- stochastic environment dynamics,
-- stochastic expert behaviour,
-- reproducibility,
-- visitation counts,
-- explorer-position coverage,
-- image encoding when entities overlap,
-- same-cell collisions,
-- position-swap collisions,
-- simultaneous movement without collisions,
-- visitation counting after collisions,
-- initial joint-state tracking,
-- repeated joint-state visits,
-- distinct joint states with the same explorer position,
-- joint-state visitation counting after collisions.
-
-### `tests/test_coverage.py`
-
-Tests the cumulative coverage tracker, including:
-
-- recording initial states without counting interactions,
-- repeated visits,
-- cumulative coverage across episodes,
-- coverage history,
-- invalid positions,
-- resetting cumulative statistics,
-- invalid grid sizes.
-
-### `tests/test_coverage_integration.py`
-
-Tests the connection between the GridWorld environment and the
-cumulative coverage tracker.
-
-The integration test verifies that cumulative coverage is correctly
-recorded across multiple environment episodes.
-
-### Running the tests
-
-Run the complete test suite using:
+Run the complete test suite from the project root:
 
 ```bash
 python -m pytest -q
 ```
 
-At the current checkpoint, all **32 tests pass**.
+### 9.1 GridWorld tests
 
-## Next Steps
+`tests/test_gridworld.py`
 
-The next development steps are:
+The tests cover:
 
-1. Implement a reproducible experiment runner that connects the
-   GridWorld, exploration policy, and coverage tracker.
-2. Establish a random exploration baseline.
-3. Generate explorer-position visitation heatmaps and cumulative
-   coverage curves.
-4. Define an initial set of environment configurations covering the
-   four combinations of deterministic/stochastic expert policies and
-   environment dynamics.
-5. Decide how to collect expert demonstrations from visited states.
-6. Identify evaluation metrics that measure whether exploration
-   improves expert-policy recovery.
-7. Finalize the interfaces required by ProtoRL and Disagreement.
-8. Implement and compare ProtoRL and Disagreement.
-9. Extend the environment and expert policies for downstream
-   MAIL evaluation.
+- Valid initial positions.
+- Fixed goal position.
+- Invalid grid sizes.
+- Deterministic expert behaviour.
+- Deterministic and stochastic dynamics.
+- Expert stochasticity.
+- Reproducibility.
+- Explorer-position visitation counts.
+- Explorer-position coverage.
+- Image encoding.
+- Same-cell collisions.
+- Position-swap collisions.
+- Simultaneous movement.
+- Joint-state visitation counts.
+- Joint-state coverage.
 
-The central research objective remains to understand which exploration
-strategies collect the most useful information for recovering expert
-behaviour, rather than simply maximizing state coverage.
+### 9.2 CoverageTracker tests
+
+`tests/test_coverage.py`
+
+The tests cover:
+
+- Initial-state recording.
+- Environment interaction counting.
+- Repeated visits.
+- Cumulative coverage across episodes.
+- Coverage history.
+- Invalid positions.
+- Resetting statistics.
+- Invalid grid sizes.
+
+### 9.3 Integration tests
+
+`tests/test_coverage_integration.py`
+
+The integration test verifies that the cumulative
+coverage tracker works correctly across multiple
+GridWorld episodes.
+
+### 9.4 Random baseline tests
+
+`tests/test_random_baseline.py`
+
+The tests verify:
+
+- Correct environment interaction counts.
+- Correct visitation counts.
+- Valid coverage values.
+- Reproducibility with fixed seeds.
+- Successful generation of both visualization files.
+
+### 9.5 Current test results
+
+At the current checkpoint:
+
+**36 tests pass.**
+
+This provides an initial level of confidence in the
+environment, evaluation infrastructure, and random baseline.
+
+---
+
+## 10. Limitations and Open Questions
+
+The current implementation is an initial experimental
+framework rather than a complete MAIL evaluation pipeline.
+
+Several limitations remain.
+
+### 10.1 Simple expert policy
+
+The current expert follows a goal-directed heuristic.
+
+Its requested action does not depend on the full joint state.
+
+Therefore, visiting more joint states does not necessarily
+reveal more information about the expert policy.
+
+A more suitable expert policy may be required to evaluate
+expert-policy recovery.
+
+### 10.2 No expert-policy recovery evaluation
+
+The current experiments measure exploration coverage.
+
+They do not yet collect expert demonstrations or train
+an imitation-learning policy.
+
+Therefore, no conclusions can currently be drawn about
+whether an exploration method improves imitation performance.
+
+### 10.3 No game-theoretic evaluation
+
+The current GridWorld does not implement a complete
+Markov game with strategically derived expert policies.
+
+Consequently, metrics such as Nash gap are not yet
+available.
+
+### 10.4 Single-seed experiment
+
+The random baseline has been evaluated using one seed.
+
+Multiple independent runs will be necessary to estimate
+average performance and variability.
+
+### 10.5 Small environment
+
+The current baseline uses a 5 × 5 grid.
+
+This is useful for debugging and understanding exploration,
+but it may be too simple to reveal meaningful differences
+between exploration algorithms.
+
+Larger grids and longer horizons may be required.
+
+### 10.6 Exploration quality versus coverage
+
+High coverage does not necessarily imply that exploration
+produces useful information about the expert.
+
+A central question is whether general novelty-based or
+uncertainty-based exploration naturally visits states
+that are informative for imitation learning.
+
+This question will guide the design of the main experiments.
+
+---
+
+## 11. Next Steps
+
+The next development stages are:
+
+1. Review the current GridWorld design and evaluation metrics.
+2. Confirm whether the initial heuristic expert is sufficient for early exploration experiments.
+3. Define how expert demonstrations should be collected during exploration.
+4. Identify metrics for evaluating expert-policy recovery.
+5. Extend the random baseline to multiple seeds.
+6. Compare the four combinations of expert and environment stochasticity.
+7. Determine suitable interaction budgets and grid sizes.
+8. Finalize a shared discrete-action RL backbone.
+9. Adapt and implement ProtoRL.
+10. Adapt and implement Disagreement.
+11. Compare the exploration methods under controlled experimental conditions.
+12. Extend the setup to support downstream MAIL evaluation.
+
+The central research objective remains:
+
+**Which exploration strategies collect the most useful information for recovering expert behaviour in deep multi-agent imitation learning?**
