@@ -216,6 +216,35 @@ The environment is suitable as an initial setting for studying
 exploration behaviour, but additional work is required before it can
 support meaningful game-theoretic evaluation of MAIL.
 
+### Two-phase experimental approach
+
+The initial experiments will follow a two-phase approach.
+
+**Phase 1 — Exploration baseline**
+
+Use the current goal-following expert to develop, test, and compare
+exploration strategies.
+
+The purpose is to investigate how ProtoRL and Disagreement behave in a
+simple environment with image observations, joint transitions, and
+configurable stochasticity.
+
+This phase focuses on exploration behaviour and diagnostic metrics rather
+than equilibrium recovery.
+
+**Phase 2 — MAIL evaluation**
+
+Introduce an expert whose decisions depend meaningfully on the joint state.
+
+The purpose is to investigate whether different exploration strategies
+collect data that improves expert-policy recovery.
+
+Additional game-theoretic structure, including suitable rewards and
+expert policies, may be required to evaluate downstream MAIL performance.
+
+This two-phase approach is a provisional experimental plan and should be
+reviewed with the thesis supervisor before the main experiments.
+
 ### Sources of stochasticity
 
 Two sources of stochasticity can be independently controlled:
@@ -304,36 +333,165 @@ the explorer.
 Whether these interactions provide more useful information for
 imitation learning remains an experimental question.
 
-### State coverage
+### Explorer-position coverage
 
-The current implementation records how often the explorer visits each
-grid cell.
+The environment records how often the explorer visits each grid cell.
 
 The corresponding coverage metric is:
 
 `number of unique explorer cells visited / total number of grid cells`
 
-This measures **explorer-position coverage**.
+For a grid containing N cells:
 
-It does not measure coverage of the full joint state.
+`C_explorer = unique_explorer_positions / N`
 
-For a two-player environment with a fixed goal, the joint state can be
-represented as:
+For the default 10 × 10 grid:
 
-`state = (player_1_position, player_2_position)`
+`N = 100`
 
-Two observations with the explorer in the same cell but the expert in
-different cells correspond to different joint states.
+This metric measures how broadly the explorer moves through the grid.
 
-Consequently, explorer-position coverage is useful as a preliminary
-diagnostic but is not sufficient to characterize exploration in a
-multi-agent environment.
+It does not account for the expert's position.
 
-Joint-state coverage and expert-relevant coverage should be considered
-when defining the experimental metrics.
+The metric is available through:
 
-Collision frequency may also be useful as a diagnostic, although it
-does not directly measure how informative the collected data is.
+```python
+env.get_state_coverage()
+```
+
+The underlying visitation counts are stored in:
+
+```python
+env._visit_counts
+```
+
+### Joint-state coverage
+
+The environment also records visits to joint states containing the
+positions of both agents.
+
+A joint state is represented as:
+
+`state = (explorer_row, explorer_col, expert_row, expert_col)`
+
+For example:
+
+`state = (2, 3, 5, 6)`
+
+and:
+
+`state = (2, 3, 7, 8)`
+
+are different joint states, even though the explorer occupies the same
+cell in both cases.
+
+This is important because the expert's position changes the situation
+encountered by the exploring agent.
+
+#### Number of possible joint states
+
+For a grid containing N cells, each agent can occupy one of those cells.
+
+Without collision restrictions, there would be:
+
+`N²`
+
+possible joint states.
+
+However, the current collision rules prevent the agents from occupying
+the same cell during normal environment transitions.
+
+Therefore, the number of valid joint states is:
+
+`N × (N - 1)`
+
+For the default 10 × 10 grid:
+
+`N = 100`
+
+`total_joint_states = 100 × 99 = 9900`
+
+#### Joint-state coverage metric
+
+Joint-state coverage is defined as:
+
+`C_joint = unique_joint_states_visited / (N × (N - 1))`
+
+The metric is available through:
+
+```python
+env.get_joint_state_coverage()
+```
+
+The underlying visitation counts are stored in:
+
+```python
+env._joint_visit_counts
+```
+
+The dictionary maps each joint state to the number of times it has
+been visited.
+
+For example:
+
+```python
+{
+    (2, 3, 5, 6): 4,
+    (2, 3, 4, 6): 2,
+}
+```
+
+This indicates that the first joint state was visited four times and
+the second joint state twice.
+
+Both states contribute once to the coverage numerator.
+
+#### When visits are recorded
+
+The environment records:
+
+1. The initial joint state when `reset()` is called.
+2. The resulting joint state after every `step()`.
+
+If a collision prevents both agents from moving, the current joint
+state is recorded again.
+
+Repeated visits increase the visitation count but do not increase
+coverage.
+
+#### Episode-level tracking
+
+Both coverage trackers are reset at the beginning of every episode.
+
+Therefore, the current methods measure coverage within a single episode.
+
+For the main experiments, cumulative coverage across multiple episodes
+will also be needed.
+
+This can be implemented in the experimental evaluation pipeline by
+aggregating visited states across episodes.
+
+### Interpreting coverage for MAIL
+
+Explorer-position coverage and joint-state coverage provide complementary
+information.
+
+For example, two exploration methods may visit the same number of
+explorer positions but different numbers of joint states.
+
+This would indicate that the methods encounter different levels of
+diversity in the configurations involving both agents.
+
+However, higher joint-state coverage does not necessarily imply that
+the collected data is more informative for imitation learning.
+
+The final evaluation should investigate whether exploration improves
+the recovery of expert behaviour.
+
+This will require additional metrics beyond coverage, potentially
+including expert-policy prediction accuracy, imitation performance,
+and game-theoretic evaluation when the appropriate environment and
+expert policies are available.
 
 ## Exploration Methods
 
@@ -452,7 +610,9 @@ The initial GridWorld infrastructure supports:
 - reproducible random seeds,
 - explorer-position visitation counts,
 - explorer-position coverage measurement,
-- visitation heatmaps,
+- joint-state visitation counts,
+- joint-state coverage measurement,
+- episode-level coverage tracking,
 - automated tests for the core environment behaviour.
 
 The environment currently provides zero reward to the exploring agent.
@@ -483,8 +643,8 @@ These should be validated before the main experiments:
 - definition of expert stochasticity,
 - treatment of collisions,
 - whether the expert should react strategically to the explorer,
-- definition of joint-state coverage,
 - definition of expert-relevant coverage,
+- cumulative coverage across episodes,
 - collection of expert demonstrations,
 - integration with the deep MAIL pipeline,
 - evaluation of recovered policies.
@@ -494,7 +654,9 @@ The following design decisions have been implemented and tested:
 - fixed goal position,
 - simultaneous movement,
 - same-cell collision handling,
-- position-swap collision handling.
+- position-swap collision handling,
+- explorer-position coverage,
+- joint-state coverage.
 
 These decisions may be revisited based on the requirements of the
 exploration experiments.
@@ -519,7 +681,11 @@ The environment has automated tests covering:
 - same-cell collisions,
 - position-swap collisions,
 - simultaneous movement without collisions,
-- visitation counting after collisions.
+- visitation counting after collisions,
+- initial joint-state tracking,
+- repeated joint-state visits,
+- distinct joint states with the same explorer position,
+- joint-state visitation counting after collisions.
 
 Run the tests using:
 
@@ -527,18 +693,18 @@ Run the tests using:
 python -m pytest -q
 ```
 
-At the current checkpoint, all 20 tests pass.
+At the current checkpoint, all 24 tests pass.
 
 ## Next Steps
 
 Before implementing the exploration algorithms:
 
-1. Continue examining the reference deep MAIL environment and exploration
-   interface.
-2. Evaluate whether the current goal-following expert is appropriate for
-   studying informative exploration.
-3. Determine whether additional game-theoretic structure is required.
-4. Define joint-state coverage and other experimental metrics.
-5. Establish how exploration data will be used for expert-policy recovery.
-6. Finalize the interfaces required by ProtoRL and Disagreement.
-7. Implement and compare the exploration methods.
+1. Define how to aggregate coverage across multiple episodes.
+2. Determine which additional exploration metrics are needed, particularly
+   metrics related to expert-policy recovery.
+3. Establish how exploration data will be used to query the expert and
+   construct imitation-learning datasets.
+4. Finalize the interfaces required by ProtoRL and Disagreement.
+5. Implement a simple exploration baseline for comparison.
+6. Implement and compare ProtoRL and Disagreement.
+7. Extend the environment and expert policies for downstream MAIL evaluation.

@@ -307,8 +307,6 @@ def test_same_cell_collision_blocks_both_agents():
     )
     env.reset(seed=42)
 
-    # Explorer moves right into the expert's cell.
-    # Expert is at the goal and requests STAY.
     env._explorer_position = np.array([0, 3])
     env._expert_position = np.array([0, 4])
 
@@ -335,7 +333,6 @@ def test_position_swap_collision_blocks_both_agents():
     )
     env.reset(seed=42)
 
-    # Explorer moves down while expert moves up.
     env._explorer_position = np.array([1, 2])
     env._expert_position = np.array([2, 2])
 
@@ -365,7 +362,6 @@ def test_non_colliding_actions_move_both_agents():
     env._explorer_position = np.array([3, 0])
     env._expert_position = np.array([3, 3])
 
-    # Explorer moves right; expert moves up.
     _, _, _, _, info = env.step(3)
 
     assert np.array_equal(
@@ -398,3 +394,98 @@ def test_collision_records_visit_to_current_position():
 
     assert info["collision"]
     assert env._visit_counts[0, 3] == initial_visits + 1
+
+
+def test_joint_coverage_records_initial_state():
+    env = GridWorldEnv(grid_size=5)
+    env.reset(seed=42)
+
+    joint_state = (
+        int(env._explorer_position[0]),
+        int(env._explorer_position[1]),
+        int(env._expert_position[0]),
+        int(env._expert_position[1]),
+    )
+
+    assert env._joint_visit_counts == {joint_state: 1}
+
+    # 25 possible cells, with 24 choices for the other agent.
+    assert env.get_joint_state_coverage() == 1 / (25 * 24)
+
+
+def test_joint_coverage_repeated_visits_do_not_increase_coverage():
+    env = GridWorldEnv(
+        grid_size=5,
+        dynamics_stochasticity=0.0,
+        expert_stochasticity=0.0,
+    )
+    env.reset(seed=42)
+
+    # Put the expert at its goal and the explorer elsewhere.
+    env._explorer_position = np.array([4, 0])
+    env._expert_position = np.array([0, 4])
+
+    # Reset tracking to the manually constructed joint state.
+    env._joint_visit_counts = {}
+    env._record_joint_visit()
+
+    joint_state = (4, 0, 0, 4)
+
+    for _ in range(3):
+        env.step(4)
+
+    assert env._joint_visit_counts[joint_state] == 4
+    assert env.get_joint_state_coverage() == 1 / (25 * 24)
+
+
+def test_joint_coverage_distinguishes_expert_positions():
+    env = GridWorldEnv(
+        grid_size=5,
+        dynamics_stochasticity=0.0,
+        expert_stochasticity=0.0,
+    )
+    env.reset(seed=42)
+
+    # The explorer stays still while the expert moves toward the goal.
+    env._explorer_position = np.array([4, 0])
+    env._expert_position = np.array([2, 3])
+
+    env._visit_counts = np.zeros((5, 5), dtype=int)
+    env._joint_visit_counts = {}
+
+    env._record_explorer_visit()
+    env._record_joint_visit()
+
+    initial_explorer_coverage = env.get_state_coverage()
+
+    env.step(4)
+
+    # Explorer has not moved, so explorer coverage is unchanged.
+    assert env.get_state_coverage() == initial_explorer_coverage
+
+    # Expert has moved, creating a new joint state.
+    assert len(env._joint_visit_counts) == 2
+    assert env.get_joint_state_coverage() == 2 / (25 * 24)
+
+
+def test_joint_coverage_collision_counts_repeated_state():
+    env = GridWorldEnv(
+        grid_size=5,
+        dynamics_stochasticity=0.0,
+        expert_stochasticity=0.0,
+    )
+    env.reset(seed=42)
+
+    # Explorer attempts to enter the expert's goal cell.
+    env._explorer_position = np.array([0, 3])
+    env._expert_position = np.array([0, 4])
+
+    env._joint_visit_counts = {}
+    env._record_joint_visit()
+
+    _, _, _, _, info = env.step(3)
+
+    assert info["collision"]
+    assert env._joint_visit_counts[(0, 3, 0, 4)] == 2
+    assert len(env._joint_visit_counts) == 1
+    assert env.get_joint_state_coverage() == 1 / (25 * 24)

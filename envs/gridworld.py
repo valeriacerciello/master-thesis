@@ -60,6 +60,7 @@ class GridWorldEnv(gym.Env):
         self._expert_position = None
         self._step_count = 0
         self._visit_counts = None
+        self._joint_visit_counts = None
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -84,7 +85,10 @@ class GridWorldEnv(gym.Env):
             dtype=int,
         )
 
+        self._joint_visit_counts = {}
+
         self._record_explorer_visit()
+        self._record_joint_visit()
 
         observation = self._get_observation()
 
@@ -159,8 +163,9 @@ class GridWorldEnv(gym.Env):
             self._explorer_position = intended_explorer_position
             self._expert_position = intended_expert_position
 
-        # 7. Record the explorer's actual visited position.
+        # 7. Record the actual visited positions and joint state.
         self._record_explorer_visit()
+        self._record_joint_visit()
 
         self._step_count += 1
 
@@ -188,9 +193,29 @@ class GridWorldEnv(gym.Env):
 
         return visited_states / total_states
 
+    def get_joint_state_coverage(self):
+        visited_joint_states = len(self._joint_visit_counts)
+
+        total_cells = self.grid_size * self.grid_size
+        total_joint_states = total_cells * (total_cells - 1)
+
+        return visited_joint_states / total_joint_states
+
     def _record_explorer_visit(self):
         row, col = self._explorer_position
         self._visit_counts[row, col] += 1
+
+    def _record_joint_visit(self):
+        joint_state = (
+            int(self._explorer_position[0]),
+            int(self._explorer_position[1]),
+            int(self._expert_position[0]),
+            int(self._expert_position[1]),
+        )
+
+        self._joint_visit_counts[joint_state] = (
+            self._joint_visit_counts.get(joint_state, 0) + 1
+        )
 
     def _apply_dynamics_stochasticity(self, action):
         if self.np_random.random() >= self.dynamics_stochasticity:
