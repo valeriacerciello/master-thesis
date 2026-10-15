@@ -10,14 +10,17 @@ def run_random_baseline(
     max_steps=50,
     number_of_episodes=10,
     seed=42,
+    save_plots=True,
+    dynamics_stochasticity=0.0,
+    expert_stochasticity=0.0,
 ):
     """Run random exploration and track cumulative coverage."""
 
     env = GridWorldEnv(
         grid_size=grid_size,
         max_steps=max_steps,
-        dynamics_stochasticity=0.0,
-        expert_stochasticity=0.0,
+        dynamics_stochasticity=dynamics_stochasticity,
+        expert_stochasticity=expert_stochasticity,
     )
 
     tracker = CoverageTracker(grid_size=grid_size)
@@ -52,9 +55,12 @@ def run_random_baseline(
 
     print("Random exploration baseline")
     print("---------------------------")
+    print(f"Seed: {seed}")
     print(f"Grid size: {grid_size} × {grid_size}")
     print(f"Episodes: {number_of_episodes}")
     print(f"Total interactions: {tracker.total_steps}")
+    print(f"Dynamics stochasticity: {dynamics_stochasticity}")
+    print(f"Expert stochasticity: {expert_stochasticity}")
 
     print(
         f"Explorer-position coverage: "
@@ -66,29 +72,30 @@ def run_random_baseline(
         f"{tracker.get_joint_coverage():.2%}"
     )
 
-    # Create the results directory if necessary.
-    results_dir = Path("results")
-    results_dir.mkdir(exist_ok=True)
+    if save_plots:
+        # Create the results directory if necessary.
+        results_dir = Path("results")
+        results_dir.mkdir(exist_ok=True)
 
-    # Save the cumulative coverage curves.
-    coverage_path = results_dir / "random_baseline_coverage.png"
+        # Save the cumulative coverage curves.
+        coverage_path = results_dir / "random_baseline_coverage.png"
 
-    plot_coverage(
-        tracker,
-        save_path=coverage_path,
-    )
+        plot_coverage(
+            tracker,
+            save_path=coverage_path,
+        )
 
-    print(f"Coverage plot saved to: {coverage_path}")
+        print(f"Coverage plot saved to: {coverage_path}")
 
-    # Save the explorer-position visitation heatmap.
-    heatmap_path = results_dir / "random_baseline_heatmap.png"
+        # Save the explorer-position visitation heatmap.
+        heatmap_path = results_dir / "random_baseline_heatmap.png"
 
-    plot_visitation_heatmap(
-        tracker,
-        save_path=heatmap_path,
-    )
+        plot_visitation_heatmap(
+            tracker,
+            save_path=heatmap_path,
+        )
 
-    print(f"Visitation heatmap saved to: {heatmap_path}")
+        print(f"Visitation heatmap saved to: {heatmap_path}")
 
     return tracker
 
